@@ -1,0 +1,3 @@
+.vscode
+software/build/*
+pico-sdk/*
