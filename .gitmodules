@@ -2,6 +2,4 @@
 	path = extern/rp2040_agrolib
 	url = https://gitlab.inesctec.pt/agrob/rp2040_agrolib.git
 	branch = Chaves_dev
-[submodule "extern/madflight"]
-	path = extern/madflight
-	url = https://github.com/qqqlab/madflight.git
+	
