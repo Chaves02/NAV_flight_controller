@@ -117,6 +117,31 @@ target_link_libraries(nav_flight_controller
         rp_agrolib_i2c
 )
 
+################################################################
+# flight
+#################################################################
+
+add_executable(flight
+        src/flight.cpp)
+
+pico_enable_stdio_usb(flight 1)
+pico_enable_stdio_uart(flight 0)
+
+pico_add_extra_outputs(flight)
+
+# Link libraries - add the specific driver and interface libraries you need
+target_link_libraries(flight
+        pico_stdlib
+        rp_agrolib_motors
+        rp_agrolib_vl53l8cx
+        rp_agrolib_bmi088
+        hardware_gpio
+        hardware_pwm
+        hardware_timer
+        hardware_adc
+        rp_agrolib_i2c
+)
+
 ############################################################
 #Quadcopter Flight Controller
 ############################################################
