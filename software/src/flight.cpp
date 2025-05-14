@@ -62,54 +62,106 @@ void setup_motors() {
 }
 
 #include "rp_agrolib_uart.h"
-float throttle, roll, pitch, yaw;
 
-#define HEADER_BYTE 0XAA
-#define PAYLOAD_SIZE 16 //4 floats
-#define TIMEOUT_US 100000 // 100ms
-
+// UART configuration for Bluetooth module
 #define UART_ID uart0
 #define UART_RX 17
 #define UART_TX 16
 #define UART_BAUDRATE 115200
 
-bool uart_read_flight_commands(uart_inst_t* bus_id){
-    char c;
-    uint64_t start = time_us_64();
+// Buffer settings
+#define MAX_BUFFER_LEN 128
+#define TIMEOUT_US 50000  // 50ms timeout
 
-    // Wait for header byte with timeout
-    while (time_us_64() - start < TIMEOUT_US) {
-        if (uart_read_char(bus_id, &c)) {
-            if ((uint8_t)c == HEADER_BYTE) {
-                break;
-            }
+// Expected message format from smartphone
+// Format: "RC,throttle,roll,pitch,yaw\n"
+// Example: "RC,1500,1500,1500,1500\n"
+
+// Buffer for incoming data
+char buffer[MAX_BUFFER_LEN];
+volatile int buffer_index = 0;
+volatile absolute_time_t last_rx_time;
+
+// RC Values - these will be updated by the UART interrupt handler
+volatile float throttle = 0.0f;
+volatile float roll = 0.0f;
+volatile float pitch = 0.0f;
+volatile float yaw = 0.0f;
+volatile bool new_data_available = false;
+
+// Function to parse RC commands from buffer
+void parse_rc_command(const char* cmd) {
+    // Expected format: "RC,throttle,roll,pitch,yaw"
+    if (strncmp(cmd, "B+RC,", 5) == 0) {
+        const char* ptr = cmd + 5; // Skip "B+RC,"
+        
+        // Parse throttle
+        float new_throttle = strtof(ptr, NULL);
+        
+        // Find next comma
+        ptr = strchr(ptr, ',');
+        if (!ptr) return;
+        ptr++; // Skip comma
+        
+        // Parse roll
+        float new_roll = strtof(ptr, NULL);
+        
+        // Find next comma
+        ptr = strchr(ptr, ',');
+        if (!ptr) return;
+        ptr++; // Skip comma
+        
+        // Parse pitch
+        float new_pitch = strtof(ptr, NULL);
+        
+        // Find next comma
+        ptr = strchr(ptr, ',');
+        if (!ptr) return;
+        ptr++; // Skip comma
+        
+        // Parse yaw
+        float new_yaw = strtof(ptr, NULL);
+        
+        // Update values automatically
+        throttle = new_throttle;
+        roll = new_roll;
+        pitch = new_pitch;
+        yaw = new_yaw;
+        new_data_available = true;
+        
+        printf("RC values updated: throttle=%.1f, roll=%.1f, pitch=%.1f, yaw=%.1f\n", throttle, roll, pitch, yaw);
+    }
+}
+
+// Process complete message in buffer
+void process_buffer() {
+    if (buffer_index > 0) {
+        buffer[buffer_index] = '\0';  // Null-terminate the string
+
+        printf("Received: %s\n", buffer);
+        
+        // All messages might start with B+, so we'll parse them regardless
+        parse_rc_command(buffer);
+        
+        // Reset buffer
+        buffer_index = 0;
+    }
+}
+
+void on_uart_rx() {
+    while (uart_is_readable(UART_ID)) {
+        char c = uart_getc(UART_ID);
+        last_rx_time = get_absolute_time();  // Update last read time
+        
+        // Check for end of message
+        if (c == 'n' || c == '\r') {
+            process_buffer();
+        } 
+        // Add character to buffer if there's room
+        else if (buffer_index < MAX_BUFFER_LEN - 1) {
+            buffer[buffer_index++] = c;
         }
     }
-    // Timeout reached before header byte
-    if ((uint8_t)c != HEADER_BYTE) {
-        return false;
-    }
-
-    // Read 16 bytes of payload with timeout
-    uint8_t buffer[PAYLOAD_SIZE];
-    int index = 0;
-    start = time_us_64();  // reset timeout
-    while (index < PAYLOAD_SIZE) {
-        if (uart_read_char(bus_id, &c)) {
-            buffer[index++] = (uint8_t)c;
-            start = time_us_64(); // reset timeout on successful byte
-        } else if (time_us_64() - start > TIMEOUT_US) {
-            return false; // Timeout waiting for payload
-        }
-    }
-
-    //unpack floats
-    memcpy(&throttle, &buffer[0],  4);
-    memcpy(&roll,     &buffer[4],  4);
-    memcpy(&pitch,    &buffer[8],  4);
-    memcpy(&yaw,      &buffer[12], 4);
-
-    return true;
 }
 
 #define I2C_SDA1 18     // I2C1 SDA on GPIO18
@@ -188,13 +240,26 @@ float IRateRoll=3.5 ; float IRatePitch=IRateRoll; float IRateYaw=12;
 float DRateRoll=0.03 ; float DRatePitch=DRateRoll; float DRateYaw=0;
 float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
 
-/*   Receiver inputs   */   ////////////////////////////////
-void read_receiver(void) {
-    //update receiver values
-    ReceiverValue[0] = throttle;
-    ReceiverValue[1] = roll;
-    ReceiverValue[2] = pitch;
-    ReceiverValue[3] = yaw;
+/*   Receiver inputs   */
+bool read_receiver(void) {
+    if(new_data_available){
+        //update receiver values
+        ReceiverValue[0] = throttle;
+        ReceiverValue[1] = roll;
+        ReceiverValue[2] = pitch;
+        ReceiverValue[3] = yaw;
+        new_data_available = false;
+        return true;
+    }
+    return false;    
+}
+
+// Check for timeout on incomplete messages
+void check_timeout() {
+    if (buffer_index > 0 && absolute_time_diff_us(last_rx_time, get_absolute_time()) > TIMEOUT_US) {
+        printf("Timeout on incomplete message: %.*s\n", buffer_index, buffer);
+        buffer_index = 0;
+    }
 }
 
 /*   PID Equation   */
@@ -238,7 +303,7 @@ Bmi088 bmi088(i2c, BMI088_ACCL_ADDR, BMI088_GYRO_ADDR);
 void setup(){
 
     stdio_init_all();
-    sleep_ms(3000); // Allow time for USB enumeration
+    sleep_ms(2000); // Allow time for USB enumeration
     printf("\nFlight Controller starting...\n");
 
     // Initialize GPIO for LEDs
@@ -296,7 +361,7 @@ void setup(){
     throttle = 0; roll = 0; pitch = 0; yaw = 0;
     while (ReceiverValue[2] < 1020 || ReceiverValue[2] > 1050) {
       read_receiver();
-      delay(4);
+      sleep_ms(4);
     }
 
     //Last line of setup - time variable for control loop
@@ -426,13 +491,14 @@ void loop() {
 
 int main() {
 
-    // Init UART
-    int uart_irq = uart_setup(UART_ID, UART_RX, UART_TX, UART_BAUDRATE, UART_DATA_BITS, UART_STOP_BITS, UART_PARITY_NONE);
-    //enable interrupt with our callback
-    uart_enable_interrupt(UART_ID, uart_irq, uart_read_flight_commands(UART_ID));
+    int irq = uart_setup(UART_ID, UART_RX, UART_TX, 115200, 8, 1, UART_PARITY_NONE);
+    uart_enable_interrupt(UART_ID, irq, on_uart_rx);
+    last_rx_time = get_absolute_time();
 
     setup();
     while (1) {
         loop();
+        check_timeout(); // Check for timeout on incomplete messages
+        sleep_ms(1); // Avoid 100% CPU usage
     }
 }
