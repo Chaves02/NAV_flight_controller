@@ -1,3 +1,8 @@
+#include "pico/stdlib.h"
+#include <time.h>
+#include <cstring>
+#include <cstdlib>   // For strtof
+
 #include "rp_agrolib_motors.h"
 #define MOTOR1_PIN 24
 #define MOTOR2_PIN 14
@@ -80,7 +85,7 @@ void setup_motors() {
 // Buffer for incoming data
 char buffer[MAX_BUFFER_LEN];
 volatile int buffer_index = 0;
-volatile absolute_time_t last_rx_time;
+volatile uint64_t last_rx_time;
 
 // RC Values - these will be updated by the UART interrupt handler
 volatile float throttle = 0.0f;
@@ -91,9 +96,20 @@ volatile bool new_data_available = false;
 
 // Function to parse RC commands from buffer
 void parse_rc_command(const char* cmd) {
-    // Expected format: "RC,throttle,roll,pitch,yaw"
-    if (strncmp(cmd, "B+RC,", 5) == 0) {
-        const char* ptr = cmd + 5; // Skip "B+RC,"
+    printf("Parsing command: %s\n", cmd);
+    //print character by character
+    for (int i = 0; i < strlen(cmd); i++) {
+        printf("%c ", cmd[i]);
+    }
+
+
+
+    printf("Buffer index: %d\n", buffer_index);
+    printf("Result of strncmp: %d\n", strncmp(cmd, "+B RC,", 6));
+    // Expected format: "RC,throttle,roll,pitch,yawn"
+    if (strncmp(cmd, "+B RC,", 6) == 0) {
+        printf("Parsing RC command: %s\n", cmd);
+        const char* ptr = cmd + 5; // Skip "+BRC,"
         
         // Parse throttle
         float new_throttle = strtof(ptr, NULL);
@@ -140,9 +156,6 @@ void process_buffer() {
 
         printf("Received: %s\n", buffer);
         
-        // All messages might start with B+, so we'll parse them regardless
-        parse_rc_command(buffer);
-        
         // Reset buffer
         buffer_index = 0;
     }
@@ -151,7 +164,7 @@ void process_buffer() {
 void on_uart_rx() {
     while (uart_is_readable(UART_ID)) {
         char c = uart_getc(UART_ID);
-        last_rx_time = get_absolute_time();  // Update last read time
+        last_rx_time = time_us_64();  // Update last read time
         
         // Check for end of message
         if (c == 'n' || c == '\r') {
@@ -256,7 +269,7 @@ bool read_receiver(void) {
 
 // Check for timeout on incomplete messages
 void check_timeout() {
-    if (buffer_index > 0 && absolute_time_diff_us(last_rx_time, get_absolute_time()) > TIMEOUT_US) {
+    if (buffer_index > 0 && (time_us_64() - last_rx_time) > TIMEOUT_US) {
         printf("Timeout on incomplete message: %.*s\n", buffer_index, buffer);
         buffer_index = 0;
     }
@@ -493,7 +506,7 @@ int main() {
 
     int irq = uart_setup(UART_ID, UART_RX, UART_TX, 115200, 8, 1, UART_PARITY_NONE);
     uart_enable_interrupt(UART_ID, irq, on_uart_rx);
-    last_rx_time = get_absolute_time();
+    last_rx_time = time_us_64();
 
     setup();
     while (1) {
