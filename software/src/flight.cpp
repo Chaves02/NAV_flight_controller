@@ -8,6 +8,9 @@
 #define MOTOR2_PIN 14
 #define MOTOR3_PIN 10
 #define MOTOR4_PIN 2
+
+//M1 = 24, M2 = 14, M3 = 10, M4 = 2
+
 void setup_motors() {
     // Initialize PWM for each motor
     // For each pin, we need to:
@@ -42,7 +45,7 @@ void setup_motors() {
     // To get 250 Hz with 2000 steps (0-1999) resolution:
     // Clock divider = 125,000,000 / (250 * 2000) = 250
     float clock_div = 250.0f;
-    uint16_t wrap = 2000 - 1; // Range from 0 to 1999
+    uint16_t wrap = 1000 - 1; // Range from 0 to 999
 
     // Configure PWM slices
     // Note: If motors share the same slice, we only need to configure once
@@ -79,8 +82,8 @@ void setup_motors() {
 #define TIMEOUT_US 50000  // 50ms timeout
 
 // Expected message format from smartphone
-// Format: "RC,throttle,roll,pitch,yaw\n"
-// Example: "RC,1500,1500,1500,1500\n"
+// Format: "RC,roll,pitch,throttle,yawn"
+// Example: "RC,1500,1500,1000,1500\n"
 
 // Buffer for incoming data
 char buffer[MAX_BUFFER_LEN];
@@ -88,36 +91,21 @@ volatile int buffer_index = 0;
 volatile uint64_t last_rx_time;
 
 // RC Values - these will be updated by the UART interrupt handler
-volatile float throttle = 0.0f;
 volatile float roll = 0.0f;
 volatile float pitch = 0.0f;
+volatile float throttle = 0.0f;
 volatile float yaw = 0.0f;
 volatile bool new_data_available = false;
 
 // Function to parse RC commands from buffer
 void parse_rc_command(const char* cmd) {
-    printf("Parsing command: %s\n", cmd);
-    //print character by character
-    for (int i = 0; i < strlen(cmd); i++) {
-        printf("%c ", cmd[i]);
-    }
+    cmd = cmd + 3; // Skip "+B + special char"
+    // Check if the command starts with "RC,"
+    printf("Command after +B: %s\n", cmd);
 
-
-
-    printf("Buffer index: %d\n", buffer_index);
-    printf("Result of strncmp: %d\n", strncmp(cmd, "+B RC,", 6));
-    // Expected format: "RC,throttle,roll,pitch,yawn"
-    if (strncmp(cmd, "+B RC,", 6) == 0) {
+    if (strncmp(cmd, "RC,", 3) == 0) {
         printf("Parsing RC command: %s\n", cmd);
-        const char* ptr = cmd + 5; // Skip "+BRC,"
-        
-        // Parse throttle
-        float new_throttle = strtof(ptr, NULL);
-        
-        // Find next comma
-        ptr = strchr(ptr, ',');
-        if (!ptr) return;
-        ptr++; // Skip comma
+        const char* ptr = cmd + 3; // Skip "RC,"
         
         // Parse roll
         float new_roll = strtof(ptr, NULL);
@@ -134,18 +122,26 @@ void parse_rc_command(const char* cmd) {
         ptr = strchr(ptr, ',');
         if (!ptr) return;
         ptr++; // Skip comma
+
+        // Parse throttle
+        float new_throttle = strtof(ptr, NULL);
+        
+        // Find next comma
+        ptr = strchr(ptr, ',');
+        if (!ptr) return;
+        ptr++; // Skip comma
         
         // Parse yaw
         float new_yaw = strtof(ptr, NULL);
         
         // Update values automatically
-        throttle = new_throttle;
         roll = new_roll;
         pitch = new_pitch;
+        throttle = new_throttle;
         yaw = new_yaw;
         new_data_available = true;
         
-        printf("RC values updated: throttle=%.1f, roll=%.1f, pitch=%.1f, yaw=%.1f\n", throttle, roll, pitch, yaw);
+        printf("RC values updated: roll=%.1f, pitch=%.1f, throttle=%.1f, yaw=%.1f\n", roll, pitch, throttle, yaw);
     }
 }
 
@@ -154,7 +150,12 @@ void process_buffer() {
     if (buffer_index > 0) {
         buffer[buffer_index] = '\0';  // Null-terminate the string
 
-        printf("Received: %s\n", buffer);
+        if(strncmp(buffer, "+C", 2) == 0)
+            printf("Connected to RC\n");
+        if(strncmp(buffer, "+B", 2) == 0)
+            parse_rc_command(buffer);
+        if(strncmp(buffer, "+D", 2) == 0)
+            printf("Disconnected from RC\n");
         
         // Reset buffer
         buffer_index = 0;
@@ -173,6 +174,7 @@ void on_uart_rx() {
         // Add character to buffer if there's room
         else if (buffer_index < MAX_BUFFER_LEN - 1) {
             buffer[buffer_index++] = c;
+            //printf("Buffer[%d]: %02X\n", buffer_index - 1, c);
         }
     }
 }
@@ -254,17 +256,16 @@ float DRateRoll=0.03 ; float DRatePitch=DRateRoll; float DRateYaw=0;
 float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
 
 /*   Receiver inputs   */
-bool read_receiver(void) {
+void read_receiver(void) {
+    //printf("reading receiver values\n");
     if(new_data_available){
         //update receiver values
-        ReceiverValue[0] = throttle;
-        ReceiverValue[1] = roll;
-        ReceiverValue[2] = pitch;
+        ReceiverValue[0] = roll;
+        ReceiverValue[1] = pitch;
+        ReceiverValue[2] = throttle;
         ReceiverValue[3] = yaw;
         new_data_available = false;
-        return true;
-    }
-    return false;    
+    }   
 }
 
 // Check for timeout on incomplete messages
@@ -279,12 +280,12 @@ void check_timeout() {
 void pid_equation(float Error, float P , float I, float D, float PrevError, float PrevIterm) {
   float Pterm=P*Error;
   float Iterm=PrevIterm+I*(Error+PrevError)*0.004/2;
-  if (Iterm > 400) Iterm=400;
-  else if (Iterm <-400) Iterm=-400;
+  if (Iterm > 200) Iterm=200;
+  else if (Iterm <-200) Iterm=-200;
   float Dterm=D*(Error-PrevError)/0.004;
   float PIDOutput= Pterm+Iterm+Dterm;
-  if (PIDOutput>400) PIDOutput=400;
-  else if (PIDOutput <-400) PIDOutput=-400;
+  if (PIDOutput>200) PIDOutput=200;
+  else if (PIDOutput <-200) PIDOutput=-200;
 
   PIDReturn[0]=PIDOutput;
   PIDReturn[1]=Error;
@@ -372,10 +373,13 @@ void setup(){
 
     // Avoid accidental liftoff
     throttle = 0; roll = 0; pitch = 0; yaw = 0;
-    while (ReceiverValue[2] < 1020 || ReceiverValue[2] > 1050) {
+    while (ReceiverValue[2] < 10 || ReceiverValue[2] > 15) {
       read_receiver();
-      sleep_ms(4);
+      printf("Throttle %f\n", ReceiverValue[2]);
+      sleep_ms(200);
     }
+    printf("Armed\n");
+    sleep_ms(1000);
 
     //Last line of setup - time variable for control loop
     LoopTimer = time_us_32();
@@ -386,17 +390,18 @@ void bmi_signals(){
     bmi088.readSensor();
 
     // Read accelerometer data   //1G = 9.81m/s^2
-    AccX = bmi088.getAccelX_mss() / 9.81 - 0.01; // Convert to G
+    AccX = -bmi088.getAccelX_mss() / 9.81 + 0.03; // Convert to G //invert X axis
     AccY = bmi088.getAccelY_mss() / 9.81;
-    AccZ = bmi088.getAccelZ_mss() / 9.81 - 0.02;
+    AccZ = bmi088.getAccelZ_mss() / 9.81 + 0.03;
+    //printf("AccX: %f, AccY: %f, AccZ: %f\n", AccX, AccY, AccZ);
     
     // Read gyroscope data
-    RateRoll = bmi088.getGyroX_rads() * RadtoDeg; //to degrees
+    RateRoll = -bmi088.getGyroX_rads() * RadtoDeg; //to degrees  //invert X axis
     RatePitch = bmi088.getGyroY_rads() * RadtoDeg;
-    RateYaw = bmi088.getGyroZ_rads() * RadtoDeg;
+    RateYaw = bmi088.getGyroZ_rads() * RadtoDeg;  // Z axis down is positive
 
-    AngleRoll = atan(AccY / sqrt(AccX * AccX + AccZ * AccZ)) * RadtoDeg; //to degrees
-    AnglePitch = atan(-AccX / sqrt(AccY * AccY + AccZ * AccZ)) * RadtoDeg; //to degrees
+    AngleRoll = -atan(AccY / sqrt(AccX * AccX + AccZ * AccZ)) * RadtoDeg; //to degrees
+    AnglePitch = -atan(AccX / sqrt(AccY * AccY + AccZ * AccZ)) * RadtoDeg; //to degrees
 }
 
 void loop() {
@@ -411,6 +416,8 @@ void loop() {
     kalman_1d(KalmanAnglePitch, KalmanUncertaintyAnglePitch, RatePitch, AnglePitch);
     KalmanAnglePitch=Kalman1DOutput[0];
     KalmanUncertaintyAnglePitch=Kalman1DOutput[1];
+
+    printf("KalmanAngleRoll: %f, KalmanAnglePitch: %f\n", KalmanAngleRoll, KalmanAnglePitch);
 
     // Read receiver values
     //Doing with interrupt to save in throttle, roll, pitch and yaw variables
@@ -455,36 +462,40 @@ void loop() {
        PrevErrorRateYaw=PIDReturn[1]; 
        PrevItermRateYaw=PIDReturn[2];
 
-    if (InputThrottle > 1800) InputThrottle = 1800; //limit throttle to 80% to permit roll, pitch and yaw estabilization
+    if (InputThrottle > 800) InputThrottle = 800; //limit throttle to 80% to permit roll, pitch and yaw estabilization
 
     // Calculate motor inputs
-    MotorInput1 = 1.024*(InputThrottle-InputRoll-InputPitch-InputYaw);
-    MotorInput2 = 1.024*(InputThrottle-InputRoll+InputPitch+InputYaw);
-    MotorInput3 = 1.024*(InputThrottle+InputRoll+InputPitch-InputYaw);
-    MotorInput4 = 1.024*(InputThrottle+InputRoll-InputPitch+InputYaw);
+    MotorInput1 = 1.024*(InputThrottle-InputRoll-InputPitch+InputYaw);
+    MotorInput2 = 1.024*(InputThrottle-InputRoll+InputPitch-InputYaw);
+    MotorInput3 = 1.024*(InputThrottle+InputRoll+InputPitch+InputYaw);
+    MotorInput4 = 1.024*(InputThrottle+InputRoll-InputPitch-InputYaw);
+
+    //printf("InputRoll: %f, InputPitch: %f, InputYaw: %f\n", InputRoll, InputPitch, InputYaw);
 
     //Limit motor inputs to 0-2000 microseconds
-    if (MotorInput1 > 2000)MotorInput1 = 1999;
-    if (MotorInput2 > 2000)MotorInput2 = 1999; 
-    if (MotorInput3 > 2000)MotorInput3 = 1999; 
-    if (MotorInput4 > 2000)MotorInput4 = 1999;
+    if (MotorInput1 > 1000)MotorInput1 = 999;
+    if (MotorInput2 > 1000)MotorInput2 = 999; 
+    if (MotorInput3 > 1000)MotorInput3 = 999; 
+    if (MotorInput4 > 1000)MotorInput4 = 999;
 
     //Keep motors at 18% if throttle is low
-    int ThrottleIdle=1180;
+    int ThrottleIdle=180;
     if (MotorInput1 < ThrottleIdle) MotorInput1 =  ThrottleIdle;
     if (MotorInput2 < ThrottleIdle) MotorInput2 =  ThrottleIdle;
     if (MotorInput3 < ThrottleIdle) MotorInput3 =  ThrottleIdle;
     if (MotorInput4 < ThrottleIdle) MotorInput4 =  ThrottleIdle;
     
     //Make sure able to disarm motors
-    int ThrottleCutOff=1000;
-    if (ReceiverValue[2]<1050) {
+    int ThrottleCutOff=0;
+    if (ReceiverValue[2]<50) {
         MotorInput1=ThrottleCutOff; 
         MotorInput2=ThrottleCutOff;
         MotorInput3=ThrottleCutOff; 
         MotorInput4=ThrottleCutOff;
         reset_pid();
     }
+
+    printf("M1: %f, M2: %f, M3: %f, M4: %f\n", MotorInput1, MotorInput2, MotorInput3, MotorInput4);
 
     //send commands to motors
     set_motor_speed(MOTOR1_PIN, MotorInput1);
@@ -493,7 +504,7 @@ void loop() {
     set_motor_speed(MOTOR4_PIN, MotorInput4);
     
     
-    //printf("Roll_angle: %f, Pitch_angle: %f\n", KalmanAngleRoll, KalmanAnglePitch);
+    printf("Roll_angle: %f, Pitch_angle: %f\n", KalmanAngleRoll, KalmanAnglePitch);
     uint32_t current_time = time_us_32();
     while (current_time - LoopTimer < 4000)
     {
