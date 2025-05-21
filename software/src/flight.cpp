@@ -88,21 +88,74 @@ void setup_motors() {
 // Buffer for incoming data
 char buffer[MAX_BUFFER_LEN];
 volatile int buffer_index = 0;
-volatile uint64_t last_rx_time;
+//volatile uint64_t last_rx_time;
 
 // RC Values - these will be updated by the UART interrupt handler
-volatile float roll = 0.0f;
-volatile float pitch = 0.0f;
-volatile float throttle = 0.0f;
-volatile float yaw = 0.0f;
-volatile bool new_data_available = false;
+//volatile float roll = 0.0f;
+//volatile float pitch = 0.0f;
+//volatile float throttle = 0.0f;
+//volatile float yaw = 0.0f;
+//volatile bool new_data_available = false;
+float roll = 0.0f;
+float pitch = 0.0f;
+float throttle = 0.0f;
+float yaw = 0.0f;
 
 // Function to parse RC commands from buffer
-void parse_rc_command(const char* cmd) {
-    cmd = cmd + 3; // Skip "+B + special char"
-    // Check if the command starts with "RC,"
-    printf("Command after +B: %s\n", cmd);
+//void parse_rc_command(const char* cmd) {
+//    cmd = cmd + 3; // Skip "+B + special char"
+//    // Check if the command starts with "RC,"
+//    printf("Command after +B: %s\n", cmd);
+//
+//    if (strncmp(cmd, "RC,", 3) == 0) {
+//        printf("Parsing RC command: %s\n", cmd);
+//        const char* ptr = cmd + 3; // Skip "RC,"
+//        
+//        // Parse roll
+//        float new_roll = strtof(ptr, NULL);
+//        
+//        // Find next comma
+//        ptr = strchr(ptr, ',');
+//        if (!ptr) return;
+//        ptr++; // Skip comma
+//        
+//        // Parse pitch
+//        float new_pitch = strtof(ptr, NULL);
+//        
+//        // Find next comma
+//        ptr = strchr(ptr, ',');
+//        if (!ptr) return;
+//        ptr++; // Skip comma
+//
+//        // Parse throttle
+//        float new_throttle = strtof(ptr, NULL);
+//        
+//        // Find next comma
+//        ptr = strchr(ptr, ',');
+//        if (!ptr) return;
+//        ptr++; // Skip comma
+//        
+//        // Parse yaw
+//        float new_yaw = strtof(ptr, NULL);
+//        
+//        // Update values automatically
+//        roll = new_roll;
+//        pitch = new_pitch;
+//        throttle = new_throttle;
+//        yaw = new_yaw;
+//        new_data_available = true;
+//        
+//        printf("RC values updated: roll=%.1f, pitch=%.1f, throttle=%.1f, yaw=%.1f\n", roll, pitch, throttle, yaw);
+//    }
+//}
 
+bool parse_rc_command(const char* cmd) {
+    // Skip "+B" prefix if present
+    if (strncmp(cmd, "+B", 2) == 0) {
+        cmd = cmd + 3; // Skip "+B + special char"
+    }
+    
+    // Check if the command starts with "RC,"
     if (strncmp(cmd, "RC,", 3) == 0) {
         printf("Parsing RC command: %s\n", cmd);
         const char* ptr = cmd + 3; // Skip "RC,"
@@ -112,7 +165,7 @@ void parse_rc_command(const char* cmd) {
         
         // Find next comma
         ptr = strchr(ptr, ',');
-        if (!ptr) return;
+        if (!ptr) return false;
         ptr++; // Skip comma
         
         // Parse pitch
@@ -120,7 +173,7 @@ void parse_rc_command(const char* cmd) {
         
         // Find next comma
         ptr = strchr(ptr, ',');
-        if (!ptr) return;
+        if (!ptr) return false;
         ptr++; // Skip comma
 
         // Parse throttle
@@ -128,58 +181,100 @@ void parse_rc_command(const char* cmd) {
         
         // Find next comma
         ptr = strchr(ptr, ',');
-        if (!ptr) return;
+        if (!ptr) return false;
         ptr++; // Skip comma
         
         // Parse yaw
         float new_yaw = strtof(ptr, NULL);
         
-        // Update values automatically
+        // Update values
         roll = new_roll;
         pitch = new_pitch;
         throttle = new_throttle;
         yaw = new_yaw;
-        new_data_available = true;
         
         printf("RC values updated: roll=%.1f, pitch=%.1f, throttle=%.1f, yaw=%.1f\n", roll, pitch, throttle, yaw);
+        return true;
     }
+    return false;
 }
 
-// Process complete message in buffer
-void process_buffer() {
-    if (buffer_index > 0) {
-        buffer[buffer_index] = '\0';  // Null-terminate the string
-
-        if(strncmp(buffer, "+C", 2) == 0)
-            printf("Connected to RC\n");
-        if(strncmp(buffer, "+B", 2) == 0)
-            parse_rc_command(buffer);
-        if(strncmp(buffer, "+D", 2) == 0)
-            printf("Disconnected from RC\n");
-        else
-            printf("Unknown command: %s\n", buffer);
-        
-        // Reset buffer
-        buffer_index = 0;
-    }
-}
-
-void on_uart_rx() {
+// Polling-based UART reading function
+void read_uart_data() {
+    static char buffer[MAX_BUFFER_LEN];
+    static int buffer_index = 0;
+    
+    // Read all available characters
     while (uart_is_readable(UART_ID)) {
         char c = uart_getc(UART_ID);
-        last_rx_time = time_us_64();  // Update last read time
         
         // Check for end of message
-        if (c == 'n' || c == '\r' || c == '\n') {
-            process_buffer();
+        if (c == '\n' || c == '\r') {
+            if (buffer_index > 0) {
+                buffer[buffer_index] = '\0';  // Null-terminate the string
+                
+                // Process different message types
+                if (strncmp(buffer, "+C", 2) == 0) {
+                    printf("Connected to RC\n");
+                } else if (strncmp(buffer, "+B", 2) == 0) {
+                    parse_rc_command(buffer);
+                } else if (strncmp(buffer, "+D", 2) == 0) {
+                    printf("Disconnected from RC\n");
+                } else if (strncmp(buffer, "RC,", 3) == 0) {
+                    // Direct RC command without +B prefix
+                    parse_rc_command(buffer);
+                }
+                
+                // Reset buffer for next message
+                buffer_index = 0;
+            }
         } 
         // Add character to buffer if there's room
         else if (buffer_index < MAX_BUFFER_LEN - 1) {
             buffer[buffer_index++] = c;
-            //printf("Buffer[%d]: %02X\n", buffer_index - 1, c);
+        } else {
+            // Buffer overflow - reset
+            buffer_index = 0;
+            printf("UART buffer overflow\n");
         }
     }
 }
+
+// Process complete message in buffer
+//void process_buffer() {
+//    if (buffer_index > 0) {
+//        buffer[buffer_index] = '\0';  // Null-terminate the string
+//
+//        if(strncmp(buffer, "+C", 2) == 0)
+//            printf("Connected to RC\n");
+//        if(strncmp(buffer, "+B", 2) == 0)
+//            parse_rc_command(buffer);
+//        if(strncmp(buffer, "+D", 2) == 0)
+//            printf("Disconnected from RC\n");
+//        else
+//            printf("Unknown command: %s\n", buffer);
+//        
+//        // Reset buffer
+//        buffer_index = 0;
+//    }
+//}
+
+//void on_uart_rx() {
+//    while (uart_is_readable(UART_ID)) {
+//        char c = uart_getc(UART_ID);
+//        last_rx_time = time_us_64();  // Update last read time
+//        
+//        // Check for end of message
+//        if (c == 'n' || c == '\r' || c == '\n') {
+//            process_buffer();
+//        } 
+//        // Add character to buffer if there's room
+//        else if (buffer_index < MAX_BUFFER_LEN - 1) {
+//            buffer[buffer_index++] = c;
+//            //printf("Buffer[%d]: %02X\n", buffer_index - 1, c);
+//        }
+//    }
+//}
 
 #define I2C_SDA1 18     // I2C1 SDA on GPIO18
 #define I2C_SCL1 19     // I2C1 SCL on GPIO19
@@ -258,25 +353,36 @@ float DRateRoll=0.03 ; float DRatePitch=DRateRoll; float DRateYaw=0;
 float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
 
 /*   Receiver inputs   */
+//void read_receiver(void) {
+//    //printf("reading receiver values\n");
+//    if(new_data_available){
+//        //update receiver values
+//        ReceiverValue[0] = roll;
+//        ReceiverValue[1] = pitch;
+//        ReceiverValue[2] = throttle;
+//        ReceiverValue[3] = yaw;
+//        new_data_available = false;
+//    }   
+//}
+
 void read_receiver(void) {
-    //printf("reading receiver values\n");
-    if(new_data_available){
-        //update receiver values
-        ReceiverValue[0] = roll;
-        ReceiverValue[1] = pitch;
-        ReceiverValue[2] = throttle;
-        ReceiverValue[3] = yaw;
-        new_data_available = false;
-    }   
+    // Read latest UART data first
+    read_uart_data();
+    
+    // Update receiver values with latest joystick data
+    ReceiverValue[0] = roll;
+    ReceiverValue[1] = pitch;
+    ReceiverValue[2] = throttle;
+    ReceiverValue[3] = yaw;
 }
 
 // Check for timeout on incomplete messages
-void check_timeout() {
-    if (buffer_index > 0 && (time_us_64() - last_rx_time) > TIMEOUT_US) {
-        printf("Timeout on incomplete message: %.*s\n", buffer_index, buffer);
-        buffer_index = 0;
-    }
-}
+//void check_timeout() {
+//    if (buffer_index > 0 && (time_us_64() - last_rx_time) > TIMEOUT_US) {
+//        printf("Timeout on incomplete message: %.*s\n", buffer_index, buffer);
+//        buffer_index = 0;
+//    }
+//}
 
 /*   PID Equation   */
 void pid_equation(float Error, float P , float I, float D, float PrevError, float PrevIterm) {
@@ -518,13 +624,13 @@ void loop() {
 int main() {
 
     int irq = uart_setup(UART_ID, UART_RX, UART_TX, 115200, 8, 1, UART_PARITY_NONE);
-    uart_enable_interrupt(UART_ID, irq, on_uart_rx);
-    last_rx_time = time_us_64();
+    //uart_enable_interrupt(UART_ID, irq, on_uart_rx);
+    //last_rx_time = time_us_64();
+    uart_set_fifo_enabled(UART_ID, true); // Enable FIFO for better performance
 
     setup();
     while (1) {
         loop();
-        check_timeout(); // Check for timeout on incomplete messages
         sleep_ms(1); // Avoid 100% CPU usage
     }
 }
