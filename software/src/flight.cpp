@@ -156,6 +156,8 @@ void process_buffer() {
             parse_rc_command(buffer);
         if(strncmp(buffer, "+D", 2) == 0)
             printf("Disconnected from RC\n");
+        else
+            printf("Unknown command: %s\n", buffer);
         
         // Reset buffer
         buffer_index = 0;
@@ -168,7 +170,7 @@ void on_uart_rx() {
         last_rx_time = time_us_64();  // Update last read time
         
         // Check for end of message
-        if (c == 'n' || c == '\r') {
+        if (c == 'n' || c == '\r' || c == '\n') {
             process_buffer();
         } 
         // Add character to buffer if there's room
@@ -424,11 +426,11 @@ void loop() {
     read_receiver();
 
     //Calculate desired angles from receiver inputs
-    DesiredAngleRoll = 0.10 * (ReceiverValue[0] - 1500);
-    DesiredAnglePitch = 0.10 * (ReceiverValue[1] - 1500);
+    DesiredAngleRoll = 0.6 * (ReceiverValue[0] - 1500); //limit to 30 degrees (0.06)
+    DesiredAnglePitch = 0.6 * (ReceiverValue[1] - 1500);
 
     InputThrottle = ReceiverValue[2];
-    DesiredRateYaw = 0.15 * (ReceiverValue[3] - 1500);
+    DesiredRateYaw = 0.10 * (ReceiverValue[3] - 1500); //limit to 50 degrees/s (0.1)
 
     // Calculate difference between desired and actual angles
     ErrorAngleRoll = DesiredAngleRoll - KalmanAngleRoll;
@@ -487,7 +489,7 @@ void loop() {
     
     //Make sure able to disarm motors
     int ThrottleCutOff=0;
-    if (ReceiverValue[2]<50) {
+    if (ReceiverValue[2]<10) {
         MotorInput1=ThrottleCutOff; 
         MotorInput2=ThrottleCutOff;
         MotorInput3=ThrottleCutOff; 
