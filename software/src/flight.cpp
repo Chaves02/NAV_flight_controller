@@ -79,15 +79,15 @@ void setup_motors() {
 
 // Buffer settings
 #define MAX_BUFFER_LEN 128
-#define TIMEOUT_US 50000  // 50ms timeout
+#define TIMEOUT_US 100000  // 50ms timeout
 
 // Expected message format from smartphone
 // Format: "RC,roll,pitch,throttle,yawn"
 // Example: "RC,1500,1500,1000,1500\n"
 
 // Buffer for incoming data
-char buffer[MAX_BUFFER_LEN];
-volatile int buffer_index = 0;
+//char buffer[MAX_BUFFER_LEN];
+//volatile int buffer_index = 0;
 //volatile uint64_t last_rx_time;
 
 // RC Values - these will be updated by the UART interrupt handler
@@ -96,10 +96,21 @@ volatile int buffer_index = 0;
 //volatile float throttle = 0.0f;
 //volatile float yaw = 0.0f;
 //volatile bool new_data_available = false;
-float roll = 0.0f;
-float pitch = 0.0f;
-float throttle = 0.0f;
-float yaw = 0.0f;
+//float roll = 0.0f;
+//float pitch = 0.0f;
+//float throttle = 0.0f;
+//float yaw = 0.0f;
+
+typedef struct {
+    float roll;
+    float pitch; 
+    float throttle;
+    float yaw;
+    bool data_valid;
+    uint64_t last_update;
+} rc_data_t;
+
+static volatile rc_data_t rc_data = {1500.0f, 1500.0f, 0.0f, 1500.0f, false, 0};
 
 // Function to parse RC commands from buffer
 //void parse_rc_command(const char* cmd) {
@@ -149,80 +160,200 @@ float yaw = 0.0f;
 //    }
 //}
 
+//bool parse_rc_command(const char* cmd) {
+//    // Skip "+B" prefix if present
+//    if (strncmp(cmd, "+B", 2) == 0) {
+//        cmd = cmd + 3; // Skip "+B + special char"
+//    }
+//    
+//    // Check if the command starts with "RC,"
+//    if (strncmp(cmd, "RC,", 3) == 0) {
+//        printf("Parsing RC command: %s\n", cmd);
+//        const char* ptr = cmd + 3; // Skip "RC,"
+//        
+//        // Parse roll
+//        float new_roll = strtof(ptr, NULL);
+//        
+//        // Find next comma
+//        ptr = strchr(ptr, ',');
+//        if (!ptr) return false;
+//        ptr++; // Skip comma
+//        
+//        // Parse pitch
+//        float new_pitch = strtof(ptr, NULL);
+//        
+//        // Find next comma
+//        ptr = strchr(ptr, ',');
+//        if (!ptr) return false;
+//        ptr++; // Skip comma
+//
+//        // Parse throttle
+//        float new_throttle = strtof(ptr, NULL);
+//        
+//        // Find next comma
+//        ptr = strchr(ptr, ',');
+//        if (!ptr) return false;
+//        ptr++; // Skip comma
+//        
+//        // Parse yaw
+//        float new_yaw = strtof(ptr, NULL);
+//        
+//        // Update values
+//        roll = new_roll;
+//        pitch = new_pitch;
+//        throttle = new_throttle;
+//        yaw = new_yaw;
+//        
+//        printf("RC values updated: roll=%.1f, pitch=%.1f, throttle=%.1f, yaw=%.1f\n", roll, pitch, throttle, yaw);
+//        return true;
+//    }
+//    return false;
+//}
+
+// Polling-based UART reading function
+//void read_uart_data() {
+//    static char buffer[MAX_BUFFER_LEN];
+//    static int buffer_index = 0;
+//    
+//    // Read all available characters
+//    while (uart_is_readable(UART_ID)) {
+//        char c = uart_getc(UART_ID);
+//        
+//        // Check for end of message
+//        if (c == '\n' || c == '\r') {
+//            if (buffer_index > 0) {
+//                buffer[buffer_index] = '\0';  // Null-terminate the string
+//                
+//                // Process different message types
+//                if (strncmp(buffer, "+C", 2) == 0) {
+//                    printf("Connected to RC\n");
+//                } else if (strncmp(buffer, "+B", 2) == 0) {
+//                    parse_rc_command(buffer);
+//                } else if (strncmp(buffer, "+D", 2) == 0) {
+//                    printf("Disconnected from RC\n");
+//                } else if (strncmp(buffer, "RC,", 3) == 0) {
+//                    // Direct RC command without +B prefix
+//                    parse_rc_command(buffer);
+//                }
+//                
+//                // Reset buffer for next message
+//                buffer_index = 0;
+//            }
+//        } 
+//        // Add character to buffer if there's room
+//        else if (buffer_index < MAX_BUFFER_LEN - 1) {
+//            buffer[buffer_index++] = c;
+//        } else {
+//            // Buffer overflow - reset
+//            buffer_index = 0;
+//            printf("UART buffer overflow\n");
+//        }
+//    }
+//}
+
+// Improved parsing function with better error handling
 bool parse_rc_command(const char* cmd) {
-    // Skip "+B" prefix if present
+    // Remove any leading whitespace
+    while (*cmd == ' ' || *cmd == '\t') cmd++;
+    
+    // Handle different prefixes
     if (strncmp(cmd, "+B", 2) == 0) {
-        cmd = cmd + 3; // Skip "+B + special char"
+        cmd += 2;
+        // Skip any special character after +B
+        if (*cmd != 'R') cmd++;
     }
     
     // Check if the command starts with "RC,"
-    if (strncmp(cmd, "RC,", 3) == 0) {
-        printf("Parsing RC command: %s\n", cmd);
-        const char* ptr = cmd + 3; // Skip "RC,"
-        
-        // Parse roll
-        float new_roll = strtof(ptr, NULL);
-        
-        // Find next comma
-        ptr = strchr(ptr, ',');
-        if (!ptr) return false;
-        ptr++; // Skip comma
-        
-        // Parse pitch
-        float new_pitch = strtof(ptr, NULL);
-        
-        // Find next comma
-        ptr = strchr(ptr, ',');
-        if (!ptr) return false;
-        ptr++; // Skip comma
-
-        // Parse throttle
-        float new_throttle = strtof(ptr, NULL);
-        
-        // Find next comma
-        ptr = strchr(ptr, ',');
-        if (!ptr) return false;
-        ptr++; // Skip comma
-        
-        // Parse yaw
-        float new_yaw = strtof(ptr, NULL);
-        
-        // Update values
-        roll = new_roll;
-        pitch = new_pitch;
-        throttle = new_throttle;
-        yaw = new_yaw;
-        
-        printf("RC values updated: roll=%.1f, pitch=%.1f, throttle=%.1f, yaw=%.1f\n", roll, pitch, throttle, yaw);
-        return true;
+    if (strncmp(cmd, "RC,", 3) != 0) {
+        return false;
     }
-    return false;
+    
+    //printf("Parsing RC command: %s\n", cmd);
+    const char* ptr = cmd + 3; // Skip "RC,"
+    
+    // Temporary variables to validate all values before updating
+    float temp_values[4];
+    
+    // Parse all 4 values
+    for (int i = 0; i < 4; i++) {
+        char* endptr;
+        temp_values[i] = strtof(ptr, &endptr);
+        
+        // Check if parsing was successful
+        if (ptr == endptr) {
+            //printf("Parse error at value %d\n", i);
+            return false;
+        }
+        
+        // Validate range (typical RC values are 1000-2000)
+        if (temp_values[i] < 0 || temp_values[i] > 2500) {
+            printf("Value %d out of range: %.1f\n", i, temp_values[i]);
+            return false;
+        }
+        
+        // Move to next value (skip comma)
+        if (i < 3) {
+            ptr = strchr(endptr, ',');
+            if (!ptr) {
+                //printf("Missing comma after value %d\n", i);
+                return false;
+            }
+            ptr++; // Skip comma
+        }
+    }
+    
+    // All values are valid, update atomically    
+    rc_data.roll = temp_values[0];
+    rc_data.pitch = temp_values[1];
+    rc_data.throttle = temp_values[2];
+    rc_data.yaw = temp_values[3];
+    rc_data.data_valid = true;
+    rc_data.last_update = time_us_64();
+    
+    //printf("RC values updated: roll=%.1f, pitch=%.1f, throttle=%.1f, yaw=%.1f\n", 
+    //       temp_values[0], temp_values[1], temp_values[2], temp_values[3]);
+    return true;
 }
 
-// Polling-based UART reading function
+// Improved UART reading with better buffer management
 void read_uart_data() {
     static char buffer[MAX_BUFFER_LEN];
     static int buffer_index = 0;
+    static uint64_t last_char_time = 0;
+    
+    uint64_t current_time = time_us_64();
+    
+    // Check for timeout on incomplete message
+    if (buffer_index > 0 && (current_time - last_char_time) > TIMEOUT_US) {
+        //printf("UART timeout, clearing buffer: %.*s\n", buffer_index, buffer);
+        buffer_index = 0;
+    }
     
     // Read all available characters
     while (uart_is_readable(UART_ID)) {
         char c = uart_getc(UART_ID);
+        last_char_time = current_time;
+        
+        // Skip null characters and other control chars except CR/LF
+        if (c == 0 || (c < 32 && c != '\r' && c != '\n')) {
+            continue;
+        }
         
         // Check for end of message
         if (c == '\n' || c == '\r') {
             if (buffer_index > 0) {
-                buffer[buffer_index] = '\0';  // Null-terminate the string
+                buffer[buffer_index] = '\0';  // Null-terminate
                 
                 // Process different message types
                 if (strncmp(buffer, "+C", 2) == 0) {
                     printf("Connected to RC\n");
-                } else if (strncmp(buffer, "+B", 2) == 0) {
-                    parse_rc_command(buffer);
                 } else if (strncmp(buffer, "+D", 2) == 0) {
                     printf("Disconnected from RC\n");
-                } else if (strncmp(buffer, "RC,", 3) == 0) {
-                    // Direct RC command without +B prefix
+                } else if (strstr(buffer, "RC,") != NULL) {
+                    // Handle RC command (with or without +B prefix)
                     parse_rc_command(buffer);
+                } else {
+                    //printf("Unknown command: %s\n", buffer);
                 }
                 
                 // Reset buffer for next message
@@ -233,10 +364,27 @@ void read_uart_data() {
         else if (buffer_index < MAX_BUFFER_LEN - 1) {
             buffer[buffer_index++] = c;
         } else {
-            // Buffer overflow - reset
+            // Buffer overflow - reset and log
+            //printf("UART buffer overflow, resetting\n");
             buffer_index = 0;
-            printf("UART buffer overflow\n");
         }
+    }
+}
+
+// Thread-safe function to get RC values
+void get_rc_values(float* roll, float* pitch, float* throttle, float* yaw, bool* valid) {
+    
+    *roll = rc_data.roll;
+    *pitch = rc_data.pitch;
+    *throttle = rc_data.throttle;
+    *yaw = rc_data.yaw;
+    *valid = rc_data.data_valid;
+    
+    // Check if data is stale (older than 500ms)
+    uint64_t current_time = time_us_64();
+    if (rc_data.data_valid && (current_time - rc_data.last_update) > 500000) {
+        *valid = false;
+        printf("RC data stale, disabling\n");
     }
 }
 
@@ -298,7 +446,7 @@ float RateCalibrationPitch, RateCalibrationRoll, RateCalibrationYaw;
 int RateCalibrationNumber;
 float AccX, AccY, AccZ;
 float AngleRoll, AnglePitch;
-float RadtoDeg=180/3.14159;
+float RadtoDeg=180/3.14159265358979323846;
 
 /*   receiver/controller   */
 float ReceiverValue[]={0, 0, 0, 0, 0, 0, 0, 0};
@@ -320,15 +468,15 @@ float ErrorAngleRoll, ErrorAnglePitch;
 //Define the values necessary for the outer loop PID controller, including the P, I and D parameters
 float PrevErrorAngleRoll, PrevErrorAnglePitch;
 float PrevItermAngleRoll, PrevItermAnglePitch;
-float PAngleRoll=2; float PAnglePitch=PAngleRoll;
-float IAngleRoll=0; float IAnglePitch=IAngleRoll;
+float PAngleRoll=2; float PAnglePitch=2;
+float IAngleRoll=0; float IAnglePitch=0;
 float DAngleRoll=0; float DAnglePitch=DAngleRoll;
 
 // Create the function that calculates the predicted angle and uncertainty using Kalman equations
 void kalman_1d(float KalmanState, float KalmanUncertainty, float KalmanInput, float KalmanMeasurement) {
     KalmanState = KalmanState+0.004*KalmanInput;
     KalmanUncertainty = KalmanUncertainty + 0.004 * 0.004 * 4 * 4;
-    float KalmanGain=KalmanUncertainty * 1/(1*KalmanUncertainty + 3 * 3);
+    float KalmanGain=KalmanUncertainty * 1/(1*KalmanUncertainty + 4*4); //3*3
     KalmanState = KalmanState+KalmanGain * (KalmanMeasurement-KalmanState);
     KalmanUncertainty=(1-KalmanGain) * KalmanUncertainty;
 
@@ -347,9 +495,9 @@ float InputRoll, InputThrottle, InputPitch, InputYaw;
 float PrevErrorRateRoll, PrevErrorRatePitch, PrevErrorRateYaw;
 float PrevItermRateRoll, PrevItermRatePitch, PrevItermRateYaw;
 float PIDReturn[]={0, 0, 0};
-float PRateRoll=0.6 ; float PRatePitch=PRateRoll; float PRateYaw=2;
+float PRateRoll=1 ; float PRatePitch=10; float PRateYaw=15;  //0.6PRoll
 float IRateRoll=3.5 ; float IRatePitch=IRateRoll; float IRateYaw=12;
-float DRateRoll=0.03 ; float DRatePitch=DRateRoll; float DRateYaw=0;
+float DRateRoll=0.03 ; float DRatePitch=DRateRoll; float DRateYaw=0; //0Dyaw
 float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
 
 /*   Receiver inputs   */
@@ -365,15 +513,58 @@ float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
 //    }   
 //}
 
+//void read_receiver(void) {
+//    // Read latest UART data first
+//    read_uart_data();
+//    
+//    // Update receiver values with latest joystick data
+//    ReceiverValue[0] = roll;
+//    ReceiverValue[1] = pitch;
+//    ReceiverValue[2] = throttle;
+//    ReceiverValue[3] = yaw;
+//}
+
 void read_receiver(void) {
     // Read latest UART data first
     read_uart_data();
     
-    // Update receiver values with latest joystick data
-    ReceiverValue[0] = roll;
-    ReceiverValue[1] = pitch;
-    ReceiverValue[2] = throttle;
-    ReceiverValue[3] = yaw;
+    // Get RC values safely
+    bool valid;
+    float temp_roll, temp_pitch, temp_throttle, temp_yaw;
+    get_rc_values(&temp_roll, &temp_pitch, &temp_throttle, &temp_yaw, &valid);
+    
+    if (valid) {
+        // Apply deadband to reduce oscillation around center values
+        const float DEADBAND = 10.0f; // ±10 units around center
+        
+        // Center values (adjust based on your controller)
+        const float CENTER_ROLL = 1500.0f;
+        const float CENTER_PITCH = 1500.0f;
+        const float CENTER_YAW = 1500.0f;
+        
+        // Apply deadband
+        if (fabs(temp_roll - CENTER_ROLL) < DEADBAND) {
+            temp_roll = CENTER_ROLL;
+        }
+        if (fabs(temp_pitch - CENTER_PITCH) < DEADBAND) {
+            temp_pitch = CENTER_PITCH;
+        }
+        if (fabs(temp_yaw - CENTER_YAW) < DEADBAND) {
+            temp_yaw = CENTER_YAW;
+        }
+        
+        // Update receiver values
+        ReceiverValue[0] = temp_roll;
+        ReceiverValue[1] = temp_pitch;
+        ReceiverValue[2] = temp_throttle;
+        ReceiverValue[3] = temp_yaw;
+    } else {
+        // Use safe default values if no valid data
+        ReceiverValue[0] = 1500.0f; // Roll center
+        ReceiverValue[1] = 1500.0f; // Pitch center
+        ReceiverValue[2] = 0.0f;    // Throttle off
+        ReceiverValue[3] = 1500.0f; // Yaw center
+    }
 }
 
 // Check for timeout on incomplete messages
@@ -388,12 +579,12 @@ void read_receiver(void) {
 void pid_equation(float Error, float P , float I, float D, float PrevError, float PrevIterm) {
   float Pterm=P*Error;
   float Iterm=PrevIterm+I*(Error+PrevError)*0.004/2;
-  if (Iterm > 200) Iterm=200;
-  else if (Iterm <-200) Iterm=-200;
+  if (Iterm > 50) Iterm=50;
+  else if (Iterm <-50) Iterm=-50;
   float Dterm=D*(Error-PrevError)/0.004;
   float PIDOutput= Pterm+Iterm+Dterm;
-  if (PIDOutput>200) PIDOutput=200;
-  else if (PIDOutput <-200) PIDOutput=-200;
+  if (PIDOutput>50) PIDOutput=50;
+  else if (PIDOutput <-50) PIDOutput=-50;
 
   PIDReturn[0]=PIDOutput;
   PIDReturn[1]=Error;
@@ -480,8 +671,15 @@ void setup(){
     sleep_ms(1000);
 
     // Avoid accidental liftoff
-    throttle = 0; roll = 0; pitch = 0; yaw = 0;
-    while (ReceiverValue[2] < 10 || ReceiverValue[2] > 15) {
+    //throttle = 0; roll = 0; pitch = 0; yaw = 0;
+    rc_data.roll = 1500.0f;
+    rc_data.pitch = 1500.0f;
+    rc_data.throttle = 0.0f;
+    rc_data.yaw = 1500.0f;
+    rc_data.data_valid = false;
+    rc_data.last_update = 0;
+
+    while (ReceiverValue[2] < 10 || ReceiverValue[2] > 30) {
       read_receiver();
       printf("Throttle %f\n", ReceiverValue[2]);
       sleep_ms(200);
@@ -493,20 +691,28 @@ void setup(){
     LoopTimer = time_us_32();
 }
 
+int print=0;
+
 void bmi_signals(){
 
     bmi088.readSensor();
 
     // Read accelerometer data   //1G = 9.81m/s^2
-    AccX = -bmi088.getAccelX_mss() / 9.81 + 0.03; // Convert to G //invert X axis
+    AccX = -bmi088.getAccelX_mss() / 9.81; //+ 0.03; // Convert to G //invert X axis
     AccY = bmi088.getAccelY_mss() / 9.81;
-    AccZ = bmi088.getAccelZ_mss() / 9.81 + 0.03;
+    AccZ = -bmi088.getAccelZ_mss() / 9.81; //+ 0.03;
     //printf("AccX: %f, AccY: %f, AccZ: %f\n", AccX, AccY, AccZ);
     
     // Read gyroscope data
     RateRoll = -bmi088.getGyroX_rads() * RadtoDeg; //to degrees  //invert X axis
     RatePitch = bmi088.getGyroY_rads() * RadtoDeg;
-    RateYaw = bmi088.getGyroZ_rads() * RadtoDeg;  // Z axis down is positive
+    RateYaw = -bmi088.getGyroZ_rads() * RadtoDeg;  // Z axis down is positive
+
+    if(print>100){
+        printf("RateRoll: %f, RatePitch: %f, RateYaw: %f\n", RateRoll, RatePitch, RateYaw);
+        print=0;
+    }
+    print++;
 
     AngleRoll = -atan(AccY / sqrt(AccX * AccX + AccZ * AccZ)) * RadtoDeg; //to degrees
     AnglePitch = -atan(AccX / sqrt(AccY * AccY + AccZ * AccZ)) * RadtoDeg; //to degrees
@@ -525,18 +731,18 @@ void loop() {
     KalmanAnglePitch=Kalman1DOutput[0];
     KalmanUncertaintyAnglePitch=Kalman1DOutput[1];
 
-    printf("KalmanAngleRoll: %f, KalmanAnglePitch: %f\n", KalmanAngleRoll, KalmanAnglePitch);
+    //printf("KalmanAngleRoll: %f, KalmanAnglePitch: %f\n", KalmanAngleRoll, KalmanAnglePitch);
 
     // Read receiver values
     //Doing with interrupt to save in throttle, roll, pitch and yaw variables
     read_receiver();
 
     //Calculate desired angles from receiver inputs
-    DesiredAngleRoll = 0.6 * (ReceiverValue[0] - 1500); //limit to 30 degrees (0.06)
-    DesiredAnglePitch = 0.6 * (ReceiverValue[1] - 1500);
+    DesiredAngleRoll = 0.02 * (ReceiverValue[0] - 1500); //limit to 10 degrees (0.02)
+    DesiredAnglePitch = 0.02 * (ReceiverValue[1] - 1500);
 
     InputThrottle = ReceiverValue[2];
-    DesiredRateYaw = 0.10 * (ReceiverValue[3] - 1500); //limit to 50 degrees/s (0.1)
+    DesiredRateYaw = 0.02 * (ReceiverValue[3] - 1500); //limit to 10 degrees/s (0.02)
 
     // Calculate difference between desired and actual angles
     ErrorAngleRoll = DesiredAngleRoll - KalmanAngleRoll;
@@ -586,8 +792,8 @@ void loop() {
     if (MotorInput3 > 1000)MotorInput3 = 999; 
     if (MotorInput4 > 1000)MotorInput4 = 999;
 
-    //Keep motors at 18% if throttle is low
-    int ThrottleIdle=180;
+    //Keep motors at 10% if throttle is low
+    int ThrottleIdle=50;
     if (MotorInput1 < ThrottleIdle) MotorInput1 =  ThrottleIdle;
     if (MotorInput2 < ThrottleIdle) MotorInput2 =  ThrottleIdle;
     if (MotorInput3 < ThrottleIdle) MotorInput3 =  ThrottleIdle;
@@ -603,7 +809,11 @@ void loop() {
         reset_pid();
     }
 
-    printf("M1: %f, M2: %f, M3: %f, M4: %f\n", MotorInput1, MotorInput2, MotorInput3, MotorInput4);
+    if(print>100){
+        printf("MotorInput1: %f, MotorInput2: %f, MotorInput3: %f, MotorInput4: %f\n", MotorInput1, MotorInput2, MotorInput3, MotorInput4);
+        print=0;
+    }
+    print++;
 
     //send commands to motors
     set_motor_speed(MOTOR1_PIN, MotorInput1);
@@ -612,7 +822,7 @@ void loop() {
     set_motor_speed(MOTOR4_PIN, MotorInput4);
     
     
-    printf("Roll_angle: %f, Pitch_angle: %f\n", KalmanAngleRoll, KalmanAnglePitch);
+    //printf("Roll_angle: %f, Pitch_angle: %f\n", KalmanAngleRoll, KalmanAnglePitch);
     uint32_t current_time = time_us_32();
     while (current_time - LoopTimer < 4000)
     {
