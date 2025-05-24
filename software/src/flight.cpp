@@ -1,5 +1,6 @@
 #include "pico/stdlib.h"
 #include <time.h>
+#include <cmath>
 #include <cstring>
 #include <cstdlib>   // For strtof
 
@@ -44,7 +45,7 @@ void setup_motors() {
     // The Pico's system clock runs at 125 MHz by default
     // To get 250 Hz with 2000 steps (0-1999) resolution:
     // Clock divider = 125,000,000 / (250 * 2000) = 250
-    float clock_div = 250.0f;
+    float clock_div = 650.0f;
     uint16_t wrap = 1000 - 1; // Range from 0 to 999
 
     // Configure PWM slices
@@ -79,27 +80,15 @@ void setup_motors() {
 
 // Buffer settings
 #define MAX_BUFFER_LEN 128
-#define TIMEOUT_US 100000  // 50ms timeout
+#define TIMEOUT_US 50000  // 50ms timeout
 
 // Expected message format from smartphone
-// Format: "RC,roll,pitch,throttle,yawn"
+// Format: "RC,roll,pitch,throttle,yaw\n"
 // Example: "RC,1500,1500,1000,1500\n"
 
-// Buffer for incoming data
-//char buffer[MAX_BUFFER_LEN];
-//volatile int buffer_index = 0;
-//volatile uint64_t last_rx_time;
-
-// RC Values - these will be updated by the UART interrupt handler
-//volatile float roll = 0.0f;
-//volatile float pitch = 0.0f;
-//volatile float throttle = 0.0f;
-//volatile float yaw = 0.0f;
-//volatile bool new_data_available = false;
-//float roll = 0.0f;
-//float pitch = 0.0f;
-//float throttle = 0.0f;
-//float yaw = 0.0f;
+/*   receiver/controller   */
+float ReceiverValue[]={0, 0, 0, 0, 0, 0, 0, 0};
+int ChannelNumber=0;
 
 typedef struct {
     float roll;
@@ -111,145 +100,6 @@ typedef struct {
 } rc_data_t;
 
 static volatile rc_data_t rc_data = {1500.0f, 1500.0f, 0.0f, 1500.0f, false, 0};
-
-// Function to parse RC commands from buffer
-//void parse_rc_command(const char* cmd) {
-//    cmd = cmd + 3; // Skip "+B + special char"
-//    // Check if the command starts with "RC,"
-//    printf("Command after +B: %s\n", cmd);
-//
-//    if (strncmp(cmd, "RC,", 3) == 0) {
-//        printf("Parsing RC command: %s\n", cmd);
-//        const char* ptr = cmd + 3; // Skip "RC,"
-//        
-//        // Parse roll
-//        float new_roll = strtof(ptr, NULL);
-//        
-//        // Find next comma
-//        ptr = strchr(ptr, ',');
-//        if (!ptr) return;
-//        ptr++; // Skip comma
-//        
-//        // Parse pitch
-//        float new_pitch = strtof(ptr, NULL);
-//        
-//        // Find next comma
-//        ptr = strchr(ptr, ',');
-//        if (!ptr) return;
-//        ptr++; // Skip comma
-//
-//        // Parse throttle
-//        float new_throttle = strtof(ptr, NULL);
-//        
-//        // Find next comma
-//        ptr = strchr(ptr, ',');
-//        if (!ptr) return;
-//        ptr++; // Skip comma
-//        
-//        // Parse yaw
-//        float new_yaw = strtof(ptr, NULL);
-//        
-//        // Update values automatically
-//        roll = new_roll;
-//        pitch = new_pitch;
-//        throttle = new_throttle;
-//        yaw = new_yaw;
-//        new_data_available = true;
-//        
-//        printf("RC values updated: roll=%.1f, pitch=%.1f, throttle=%.1f, yaw=%.1f\n", roll, pitch, throttle, yaw);
-//    }
-//}
-
-//bool parse_rc_command(const char* cmd) {
-//    // Skip "+B" prefix if present
-//    if (strncmp(cmd, "+B", 2) == 0) {
-//        cmd = cmd + 3; // Skip "+B + special char"
-//    }
-//    
-//    // Check if the command starts with "RC,"
-//    if (strncmp(cmd, "RC,", 3) == 0) {
-//        printf("Parsing RC command: %s\n", cmd);
-//        const char* ptr = cmd + 3; // Skip "RC,"
-//        
-//        // Parse roll
-//        float new_roll = strtof(ptr, NULL);
-//        
-//        // Find next comma
-//        ptr = strchr(ptr, ',');
-//        if (!ptr) return false;
-//        ptr++; // Skip comma
-//        
-//        // Parse pitch
-//        float new_pitch = strtof(ptr, NULL);
-//        
-//        // Find next comma
-//        ptr = strchr(ptr, ',');
-//        if (!ptr) return false;
-//        ptr++; // Skip comma
-//
-//        // Parse throttle
-//        float new_throttle = strtof(ptr, NULL);
-//        
-//        // Find next comma
-//        ptr = strchr(ptr, ',');
-//        if (!ptr) return false;
-//        ptr++; // Skip comma
-//        
-//        // Parse yaw
-//        float new_yaw = strtof(ptr, NULL);
-//        
-//        // Update values
-//        roll = new_roll;
-//        pitch = new_pitch;
-//        throttle = new_throttle;
-//        yaw = new_yaw;
-//        
-//        printf("RC values updated: roll=%.1f, pitch=%.1f, throttle=%.1f, yaw=%.1f\n", roll, pitch, throttle, yaw);
-//        return true;
-//    }
-//    return false;
-//}
-
-// Polling-based UART reading function
-//void read_uart_data() {
-//    static char buffer[MAX_BUFFER_LEN];
-//    static int buffer_index = 0;
-//    
-//    // Read all available characters
-//    while (uart_is_readable(UART_ID)) {
-//        char c = uart_getc(UART_ID);
-//        
-//        // Check for end of message
-//        if (c == '\n' || c == '\r') {
-//            if (buffer_index > 0) {
-//                buffer[buffer_index] = '\0';  // Null-terminate the string
-//                
-//                // Process different message types
-//                if (strncmp(buffer, "+C", 2) == 0) {
-//                    printf("Connected to RC\n");
-//                } else if (strncmp(buffer, "+B", 2) == 0) {
-//                    parse_rc_command(buffer);
-//                } else if (strncmp(buffer, "+D", 2) == 0) {
-//                    printf("Disconnected from RC\n");
-//                } else if (strncmp(buffer, "RC,", 3) == 0) {
-//                    // Direct RC command without +B prefix
-//                    parse_rc_command(buffer);
-//                }
-//                
-//                // Reset buffer for next message
-//                buffer_index = 0;
-//            }
-//        } 
-//        // Add character to buffer if there's room
-//        else if (buffer_index < MAX_BUFFER_LEN - 1) {
-//            buffer[buffer_index++] = c;
-//        } else {
-//            // Buffer overflow - reset
-//            buffer_index = 0;
-//            printf("UART buffer overflow\n");
-//        }
-//    }
-//}
 
 // Improved parsing function with better error handling
 bool parse_rc_command(const char* cmd) {
@@ -309,9 +159,7 @@ bool parse_rc_command(const char* cmd) {
     rc_data.yaw = temp_values[3];
     rc_data.data_valid = true;
     rc_data.last_update = time_us_64();
-    
-    //printf("RC values updated: roll=%.1f, pitch=%.1f, throttle=%.1f, yaw=%.1f\n", 
-    //       temp_values[0], temp_values[1], temp_values[2], temp_values[3]);
+
     return true;
 }
 
@@ -388,142 +236,7 @@ void get_rc_values(float* roll, float* pitch, float* throttle, float* yaw, bool*
     }
 }
 
-// Process complete message in buffer
-//void process_buffer() {
-//    if (buffer_index > 0) {
-//        buffer[buffer_index] = '\0';  // Null-terminate the string
-//
-//        if(strncmp(buffer, "+C", 2) == 0)
-//            printf("Connected to RC\n");
-//        if(strncmp(buffer, "+B", 2) == 0)
-//            parse_rc_command(buffer);
-//        if(strncmp(buffer, "+D", 2) == 0)
-//            printf("Disconnected from RC\n");
-//        else
-//            printf("Unknown command: %s\n", buffer);
-//        
-//        // Reset buffer
-//        buffer_index = 0;
-//    }
-//}
-
-//void on_uart_rx() {
-//    while (uart_is_readable(UART_ID)) {
-//        char c = uart_getc(UART_ID);
-//        last_rx_time = time_us_64();  // Update last read time
-//        
-//        // Check for end of message
-//        if (c == 'n' || c == '\r' || c == '\n') {
-//            process_buffer();
-//        } 
-//        // Add character to buffer if there's room
-//        else if (buffer_index < MAX_BUFFER_LEN - 1) {
-//            buffer[buffer_index++] = c;
-//            //printf("Buffer[%d]: %02X\n", buffer_index - 1, c);
-//        }
-//    }
-//}
-
-#define I2C_SDA1 18     // I2C1 SDA on GPIO18
-#define I2C_SCL1 19     // I2C1 SCL on GPIO19
-#define I2C_BAUD 400000 // 400kHz I2C speed
-
-#define BMI088_ACCL_ADDR 0x18
-#define BMI088_GYRO_ADDR 0x68
-#define GYRO_INT_PIN 20
-#define ACCEL_INT_PIN 21
-#define LIDAR_ADDR 0x29 // VL53L8CX I2C address
-
-#define LED_GREEN_L 3
-#define LED_GREEN_R 25
-#define LED_RED_L 11
-#define LED_RED_R 15
-
-/*   BMI088   */
-#include "rp_agrolib_bmi088.h"
-float RatePitch, RateRoll, RateYaw;
-float RateCalibrationPitch, RateCalibrationRoll, RateCalibrationYaw;
-int RateCalibrationNumber;
-float AccX, AccY, AccZ;
-float AngleRoll, AnglePitch;
-float RadtoDeg=180/3.14159265358979323846;
-
-/*   receiver/controller   */
-float ReceiverValue[]={0, 0, 0, 0, 0, 0, 0, 0};
-int ChannelNumber=0;
-
-uint32_t LoopTimer; //lengh of each control loop
-
-// Define predicted angles and uncertainties
-float KalmanAngleRoll=0, KalmanUncertaintyAngleRoll=2*2;
-float KalmanAnglePitch=0, KalmanUncertaintyAnglePitch=2*2;
-
-// Initialize output of filter
-float Kalman1DOutput[]={0/*angle prediction*/, 0/*uncertainty of the prediction*/};                       
-
-// Define the desired roll and pitch angles and corresponding errors for the outer loop PID controller                       
-float DesiredAngleRoll, DesiredAnglePitch;
-float ErrorAngleRoll, ErrorAnglePitch;
-
-//Define the values necessary for the outer loop PID controller, including the P, I and D parameters
-float PrevErrorAngleRoll, PrevErrorAnglePitch;
-float PrevItermAngleRoll, PrevItermAnglePitch;
-float PAngleRoll=2; float PAnglePitch=2;
-float IAngleRoll=0; float IAnglePitch=0;
-float DAngleRoll=0; float DAnglePitch=DAngleRoll;
-
-// Create the function that calculates the predicted angle and uncertainty using Kalman equations
-void kalman_1d(float KalmanState, float KalmanUncertainty, float KalmanInput, float KalmanMeasurement) {
-    KalmanState = KalmanState+0.004*KalmanInput;
-    KalmanUncertainty = KalmanUncertainty + 0.004 * 0.004 * 4 * 4;
-    float KalmanGain=KalmanUncertainty * 1/(1*KalmanUncertainty + 4*4); //3*3
-    KalmanState = KalmanState+KalmanGain * (KalmanMeasurement-KalmanState);
-    KalmanUncertainty=(1-KalmanGain) * KalmanUncertainty;
-
-    Kalman1DOutput[0]=KalmanState;        //Kalman filter output
-    Kalman1DOutput[1]=KalmanUncertainty;
-}
-//KalmanInput is the rotation rate from the gyro
-//KalmanMeasurement is the angle from the accelerometer
-//KalmanState is the angle calculated by the Kalman filter
-
-
-/*   PID   */
-float DesiredRateRoll, DesiredRatePitch, DesiredRateYaw;
-float ErrorRateRoll, ErrorRatePitch, ErrorRateYaw;
-float InputRoll, InputThrottle, InputPitch, InputYaw;
-float PrevErrorRateRoll, PrevErrorRatePitch, PrevErrorRateYaw;
-float PrevItermRateRoll, PrevItermRatePitch, PrevItermRateYaw;
-float PIDReturn[]={0, 0, 0};
-float PRateRoll=1 ; float PRatePitch=10; float PRateYaw=15;  //0.6PRoll
-float IRateRoll=3.5 ; float IRatePitch=IRateRoll; float IRateYaw=12;
-float DRateRoll=0.03 ; float DRatePitch=DRateRoll; float DRateYaw=0; //0Dyaw
-float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
-
-/*   Receiver inputs   */
-//void read_receiver(void) {
-//    //printf("reading receiver values\n");
-//    if(new_data_available){
-//        //update receiver values
-//        ReceiverValue[0] = roll;
-//        ReceiverValue[1] = pitch;
-//        ReceiverValue[2] = throttle;
-//        ReceiverValue[3] = yaw;
-//        new_data_available = false;
-//    }   
-//}
-
-//void read_receiver(void) {
-//    // Read latest UART data first
-//    read_uart_data();
-//    
-//    // Update receiver values with latest joystick data
-//    ReceiverValue[0] = roll;
-//    ReceiverValue[1] = pitch;
-//    ReceiverValue[2] = throttle;
-//    ReceiverValue[3] = yaw;
-//}
-
+// Function to read receiver values
 void read_receiver(void) {
     // Read latest UART data first
     read_uart_data();
@@ -567,24 +280,88 @@ void read_receiver(void) {
     }
 }
 
-// Check for timeout on incomplete messages
-//void check_timeout() {
-//    if (buffer_index > 0 && (time_us_64() - last_rx_time) > TIMEOUT_US) {
-//        printf("Timeout on incomplete message: %.*s\n", buffer_index, buffer);
-//        buffer_index = 0;
-//    }
-//}
+#define I2C_SDA1 18     // I2C1 SDA on GPIO18
+#define I2C_SCL1 19     // I2C1 SCL on GPIO19
+#define I2C_BAUD 400000 // 400kHz I2C speed
+
+#define BMI088_ACCL_ADDR 0x18
+#define BMI088_GYRO_ADDR 0x68
+#define GYRO_INT_PIN 20
+#define ACCEL_INT_PIN 21
+#define LIDAR_ADDR 0x29 // VL53L8CX I2C address
+
+#define LED_GREEN_L 3
+#define LED_GREEN_R 25
+#define LED_RED_L 11
+#define LED_RED_R 15
+
+/*   BMI088   */
+#include "rp_agrolib_bmi088.h"
+float RatePitch, RateRoll, RateYaw;
+float AccX, AccY, AccZ;
+float AngleRoll, AnglePitch;
+float RateCalibrationPitch=0, RateCalibrationRoll=0, RateCalibrationYaw=0;
+float AcclCalibrationX=0, AcclCalibrationY=0, AcclCalibrationZ=0;
+int RateCalibrationNumber=0;
+float RadtoDeg=180/3.14159265358979323846;
+
+uint32_t LoopTimer; //lengh of each control loop
+
+// Define predicted angles and uncertainties
+float KalmanAngleRoll=0, KalmanUncertaintyAngleRoll=2*2;
+float KalmanAnglePitch=0, KalmanUncertaintyAnglePitch=2*2;
+
+// Initialize output of filter
+float Kalman1DOutput[]={0/*angle prediction*/, 0/*uncertainty of the prediction*/};                       
+
+// Define the desired roll and pitch angles and corresponding errors for the outer loop PID controller                       
+float DesiredAngleRoll, DesiredAnglePitch;
+float ErrorAngleRoll, ErrorAnglePitch;
+
+//Define the values necessary for the outer loop PID controller, including the P, I and D parameters
+float PrevErrorAngleRoll, PrevErrorAnglePitch;
+float PrevItermAngleRoll, PrevItermAnglePitch;
+float PAngleRoll=5; float PAnglePitch=10;
+float IAngleRoll=1; float IAnglePitch=5;
+float DAngleRoll=0.05; float DAnglePitch=0.05;
+
+// Create the function that calculates the predicted angle and uncertainty using Kalman equations
+void kalman_1d(float KalmanState, float KalmanUncertainty, float KalmanInput, float KalmanMeasurement) {
+    KalmanState = KalmanState+0.005*KalmanInput;
+    KalmanUncertainty = KalmanUncertainty + 0.005*0.005 * 4*4; //std desviation of accl 4º
+    float KalmanGain=KalmanUncertainty * 1/(1*KalmanUncertainty + 3*3); //std desviation of gyro 3º
+    KalmanState = KalmanState+KalmanGain * (KalmanMeasurement-KalmanState);
+    KalmanUncertainty=(1-KalmanGain) * KalmanUncertainty;
+
+    Kalman1DOutput[0]=KalmanState;        //Kalman filter output
+    Kalman1DOutput[1]=KalmanUncertainty;
+}
+//KalmanInput is the rotation rate from the gyro
+//KalmanMeasurement is the angle from the accelerometer
+//KalmanState is the angle calculated by the Kalman filter
+
+/*   PID   */
+float DesiredRateRoll, DesiredRatePitch, DesiredRateYaw;
+float ErrorRateRoll, ErrorRatePitch, ErrorRateYaw;
+float InputRoll, InputThrottle, InputPitch, InputYaw;
+float PrevErrorRateRoll, PrevErrorRatePitch, PrevErrorRateYaw;
+float PrevItermRateRoll, PrevItermRatePitch, PrevItermRateYaw;
+float PIDReturn[]={0, 0, 0};
+float PRateRoll=8 ; float PRatePitch=8; float PRateYaw=16;  //0.6PRoll
+float IRateRoll=3.5 ; float IRatePitch=3.5; float IRateYaw=13;
+float DRateRoll=0.03 ; float DRatePitch=0.03; float DRateYaw=0; //0Dyaw
+float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
 
 /*   PID Equation   */
 void pid_equation(float Error, float P , float I, float D, float PrevError, float PrevIterm) {
   float Pterm=P*Error;
-  float Iterm=PrevIterm+I*(Error+PrevError)*0.004/2;
-  if (Iterm > 50) Iterm=50;
-  else if (Iterm <-50) Iterm=-50;
-  float Dterm=D*(Error-PrevError)/0.004;
+  float Iterm=PrevIterm+I*(Error+PrevError)*0.005/2;  //0.005 is the time step -> 200Hz
+  if (Iterm > 100) Iterm=100;
+  else if (Iterm <-100) Iterm=-100;
+  float Dterm=D*(Error-PrevError)/0.005;
   float PIDOutput= Pterm+Iterm+Dterm;
-  if (PIDOutput>50) PIDOutput=50;
-  else if (PIDOutput <-50) PIDOutput=-50;
+  if (PIDOutput>100) PIDOutput=100;
+  else if (PIDOutput <-100) PIDOutput=-100;
 
   PIDReturn[0]=PIDOutput;
   PIDReturn[1]=Error;
@@ -602,13 +379,6 @@ void reset_pid(void) {
 
 // Initialize I2C
 i2c_inst_t *i2c = init_i2c1(I2C_SDA1, I2C_SCL1, I2C_BAUD, true);
-
-// Initialize VL53L8CX sensor
-//VL53L8CX_Configuration Dev;           // ToF sensor configuration
-//VL53L8CX_ResultsData Results;         // ToF results data
-//uint8_t status, isReady, isAlive;              // For ranging status
-//Dev.platform.address = LIDAR_ADDR; /* Default address */
-//Dev.platform.i2c_instance = i2c;   /* I2C instance */
 
 // Init BMI088
 Bmi088 bmi088(i2c, BMI088_ACCL_ADDR, BMI088_GYRO_ADDR);
@@ -635,9 +405,7 @@ void setup(){
     sleep_ms(1000);
 
     /*BMI begin*/
-    int status;
-
-    status = bmi088.begin();
+    int status = bmi088.begin();
     if (status < 0)
     {
         printf("Error: %d\n", status);
@@ -663,6 +431,17 @@ void setup(){
     set_motor_speed(MOTOR4_PIN, 0);
     sleep_ms(50);
     printf("Motors Initialized\n");
+
+    for(RateCalibrationNumber=0; RateCalibrationNumber<2000; RateCalibrationNumber++){
+        bmi088.readSensor();
+        RateCalibrationRoll+=  -(bmi088.getGyroX_rads() * RadtoDeg);
+        RateCalibrationPitch+= +(bmi088.getGyroY_rads() * RadtoDeg);
+        RateCalibrationYaw+=   -(bmi088.getGyroZ_rads() * RadtoDeg);
+        sleep_ms(1);
+    }
+    RateCalibrationRoll=RateCalibrationRoll/RateCalibrationNumber;
+    RateCalibrationPitch=RateCalibrationPitch/RateCalibrationNumber;
+    RateCalibrationYaw=RateCalibrationYaw/RateCalibrationNumber;
 
     gpio_put(LED_GREEN_L, 0);
     gpio_put(LED_GREEN_R, 0);
@@ -691,38 +470,28 @@ void setup(){
     LoopTimer = time_us_32();
 }
 
-int print=0;
-
 void bmi_signals(){
 
     bmi088.readSensor();
 
     // Read accelerometer data   //1G = 9.81m/s^2
-    AccX = -bmi088.getAccelX_mss() / 9.81; //+ 0.03; // Convert to G //invert X axis
-    AccY = bmi088.getAccelY_mss() / 9.81;
-    AccZ = -bmi088.getAccelZ_mss() / 9.81; //+ 0.03;
-    //printf("AccX: %f, AccY: %f, AccZ: %f\n", AccX, AccY, AccZ);
-    
+    AccX = -bmi088.getAccelX_mss() / 9.81; // X forward seeing the drone from the back
+    AccY =  bmi088.getAccelY_mss() / 9.81; // Y left
+    AccZ = -bmi088.getAccelZ_mss() / 9.81; // Z up
+
     // Read gyroscope data
-    RateRoll = -bmi088.getGyroX_rads() * RadtoDeg; //to degrees  //invert X axis
-    RatePitch = bmi088.getGyroY_rads() * RadtoDeg;
-    RateYaw = -bmi088.getGyroZ_rads() * RadtoDeg;  // Z axis down is positive
+    RateRoll  = -bmi088.getGyroX_rads() * RadtoDeg - RateCalibrationRoll;   // X forward
+    RatePitch =  bmi088.getGyroY_rads() * RadtoDeg - RateCalibrationPitch;  // Y left
+    RateYaw   = -bmi088.getGyroZ_rads() * RadtoDeg - RateCalibrationYaw;    // Z up
 
-    if(print>100){
-        printf("RateRoll: %f, RatePitch: %f, RateYaw: %f\n", RateRoll, RatePitch, RateYaw);
-        print=0;
-    }
-    print++;
-
-    AngleRoll = -atan(AccY / sqrt(AccX * AccX + AccZ * AccZ)) * RadtoDeg; //to degrees
-    AnglePitch = -atan(AccX / sqrt(AccY * AccY + AccZ * AccZ)) * RadtoDeg; //to degrees
+    AngleRoll  = -atan2(AccY, sqrt(AccX * AccX + AccZ * AccZ)) * RadtoDeg; //to degrees
+    AnglePitch = -atan2(AccX, sqrt(AccY * AccY + AccZ * AccZ)) * RadtoDeg; //to degrees
 }
 
 void loop() {
 
     bmi_signals();
-    //printf("Accel: %f %f %f\n", AccX, AccY, AccZ);
-    //printf("Roll_angle: %f, Pitch_angle: %f\n", AngleRoll, AnglePitch);
+
     kalman_1d(KalmanAngleRoll, KalmanUncertaintyAngleRoll, RateRoll, AngleRoll);
     KalmanAngleRoll=Kalman1DOutput[0];
     KalmanUncertaintyAngleRoll=Kalman1DOutput[1];
@@ -731,18 +500,15 @@ void loop() {
     KalmanAnglePitch=Kalman1DOutput[0];
     KalmanUncertaintyAnglePitch=Kalman1DOutput[1];
 
-    //printf("KalmanAngleRoll: %f, KalmanAnglePitch: %f\n", KalmanAngleRoll, KalmanAnglePitch);
-
     // Read receiver values
-    //Doing with interrupt to save in throttle, roll, pitch and yaw variables
     read_receiver();
 
     //Calculate desired angles from receiver inputs
-    DesiredAngleRoll = 0.02 * (ReceiverValue[0] - 1500); //limit to 10 degrees (0.02)
-    DesiredAnglePitch = 0.02 * (ReceiverValue[1] - 1500);
+    DesiredAngleRoll = 0.04 * (ReceiverValue[0] - 1500); //limit to 20 degrees
+    DesiredAnglePitch = -0.04 * (ReceiverValue[1] - 1500);
 
     InputThrottle = ReceiverValue[2];
-    DesiredRateYaw = 0.02 * (ReceiverValue[3] - 1500); //limit to 10 degrees/s (0.02)
+    DesiredRateYaw = 0.05 * (ReceiverValue[3] - 1500); //limit to 25 degrees/s
 
     // Calculate difference between desired and actual angles
     ErrorAngleRoll = DesiredAngleRoll - KalmanAngleRoll;
@@ -776,24 +542,22 @@ void loop() {
        PrevErrorRateYaw=PIDReturn[1]; 
        PrevItermRateYaw=PIDReturn[2];
 
-    if (InputThrottle > 800) InputThrottle = 800; //limit throttle to 80% to permit roll, pitch and yaw estabilization
+    if (InputThrottle > 600) InputThrottle = 600; //limit throttle to 80% to permit roll, pitch and yaw estabilization
 
     // Calculate motor inputs
-    MotorInput1 = 1.024*(InputThrottle-InputRoll-InputPitch+InputYaw);
-    MotorInput2 = 1.024*(InputThrottle-InputRoll+InputPitch-InputYaw);
-    MotorInput3 = 1.024*(InputThrottle+InputRoll+InputPitch+InputYaw);
-    MotorInput4 = 1.024*(InputThrottle+InputRoll-InputPitch-InputYaw);
+    MotorInput1 = InputThrottle-InputRoll+InputPitch+InputYaw;
+    MotorInput2 = InputThrottle-InputRoll-InputPitch-InputYaw;
+    MotorInput3 = InputThrottle+InputRoll-InputPitch+InputYaw;
+    MotorInput4 = InputThrottle+InputRoll+InputPitch-InputYaw;
 
-    //printf("InputRoll: %f, InputPitch: %f, InputYaw: %f\n", InputRoll, InputPitch, InputYaw);
-
-    //Limit motor inputs to 0-2000 microseconds
+    //Limit motor inputs to 0-1000 microseconds
     if (MotorInput1 > 1000)MotorInput1 = 999;
     if (MotorInput2 > 1000)MotorInput2 = 999; 
     if (MotorInput3 > 1000)MotorInput3 = 999; 
     if (MotorInput4 > 1000)MotorInput4 = 999;
 
     //Keep motors at 10% if throttle is low
-    int ThrottleIdle=50;
+    int ThrottleIdle=30;
     if (MotorInput1 < ThrottleIdle) MotorInput1 =  ThrottleIdle;
     if (MotorInput2 < ThrottleIdle) MotorInput2 =  ThrottleIdle;
     if (MotorInput3 < ThrottleIdle) MotorInput3 =  ThrottleIdle;
@@ -807,25 +571,39 @@ void loop() {
         MotorInput3=ThrottleCutOff; 
         MotorInput4=ThrottleCutOff;
         reset_pid();
-    }
 
-    if(print>100){
-        printf("MotorInput1: %f, MotorInput2: %f, MotorInput3: %f, MotorInput4: %f\n", MotorInput1, MotorInput2, MotorInput3, MotorInput4);
-        print=0;
+        //KalmanAngleRoll = AngleRoll;
+        //KalmanAnglePitch = AnglePitch;
+        //KalmanUncertaintyAngleRoll = 2*2;
+        //KalmanUncertaintyAnglePitch = 2*2;
     }
-    print++;
 
     //send commands to motors
     set_motor_speed(MOTOR1_PIN, MotorInput1);
     set_motor_speed(MOTOR2_PIN, MotorInput2);
     set_motor_speed(MOTOR3_PIN, MotorInput3);
     set_motor_speed(MOTOR4_PIN, MotorInput4);
+
+
+    // Debug output (reduce frequency to avoid spam)
+    static int debug_counter = 0;
+    if(debug_counter++ > 100) {
+        printf("                                         %.1f   %.1f\n", AngleRoll, AnglePitch);
+        printf("ACCL: X=%.1f, Y=%.1f, Z=%.1f | Angles: R=%.1f P=%.1f | Rates: R=%.1f P=%.1f Y=%.1f \n", 
+               AccX, AccY, AccZ, AngleRoll, AnglePitch, KalmanAngleRoll, KalmanAnglePitch, RateRoll, RatePitch, RateYaw);
+        printf("Motors: %.1f  %.1f  %.1f  %.1f \n", MotorInput1, MotorInput2, MotorInput3, MotorInput4);
+        printf("Receiver: R=%.1f P=%.1f T=%.1f Y=%.1f\n", 
+               ReceiverValue[0], ReceiverValue[1], ReceiverValue[2], ReceiverValue[3]);
+        
+        debug_counter = 0;
+    }
     
     
     //printf("Roll_angle: %f, Pitch_angle: %f\n", KalmanAngleRoll, KalmanAnglePitch);
     uint32_t current_time = time_us_32();
-    while (current_time - LoopTimer < 4000)
+    while (current_time - LoopTimer < 5000) //200Hz
     {
+        //printf("Waiting for next loop...\n");
         current_time = time_us_32();
     }
     LoopTimer = time_us_32();
