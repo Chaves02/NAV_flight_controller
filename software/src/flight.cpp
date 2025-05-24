@@ -321,8 +321,8 @@ float ErrorAngleRoll, ErrorAnglePitch;
 //Define the values necessary for the outer loop PID controller, including the P, I and D parameters
 float PrevErrorAngleRoll, PrevErrorAnglePitch;
 float PrevItermAngleRoll, PrevItermAnglePitch;
-float PAngleRoll=5; float PAnglePitch=10;
-float IAngleRoll=1; float IAnglePitch=5;
+float PAngleRoll=5; float PAnglePitch=5;
+float IAngleRoll=1; float IAnglePitch=1;
 float DAngleRoll=0.05; float DAnglePitch=0.05;
 
 // Create the function that calculates the predicted angle and uncertainty using Kalman equations
