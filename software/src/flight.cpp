@@ -321,8 +321,8 @@ float ErrorAngleRoll, ErrorAnglePitch;
 //Define the values necessary for the outer loop PID controller, including the P, I and D parameters
 float PrevErrorAngleRoll, PrevErrorAnglePitch;
 float PrevItermAngleRoll, PrevItermAnglePitch;
-float PAngleRoll=13; float PAnglePitch=13;
-float IAngleRoll=0; float IAnglePitch=0;
+float PAngleRoll=10; float PAnglePitch=10;
+float IAngleRoll=0.5; float IAnglePitch=0.5;
 float DAngleRoll=1; float DAnglePitch=1;
 
 // Create the function that calculates the predicted angle and uncertainty using Kalman equations
@@ -347,9 +347,9 @@ float InputRoll, InputThrottle, InputPitch, InputYaw;
 float PrevErrorRateRoll, PrevErrorRatePitch, PrevErrorRateYaw;
 float PrevItermRateRoll, PrevItermRatePitch, PrevItermRateYaw;
 float PIDReturn[]={0, 0, 0};
-float PRateRoll=8 ; float PRatePitch=8; float PRateYaw=20;  //0.6PRoll
-float IRateRoll=3.5 ; float IRatePitch=3.5; float IRateYaw=13;
-float DRateRoll=0.03 ; float DRatePitch=0.03; float DRateYaw=0.01; //0Dyaw
+float PRateRoll=10 ; float PRatePitch=10; float PRateYaw=30;  //0.6PRoll
+float IRateRoll=2 ; float IRatePitch=2; float IRateYaw=2;
+float DRateRoll=0.15 ; float DRatePitch=0.15; float DRateYaw=0.01; //0Dyaw
 float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
 
 /*   PID Equation   */
@@ -432,16 +432,16 @@ void setup(){
     sleep_ms(50);
     printf("Motors Initialized\n");
 
-    for(RateCalibrationNumber=0; RateCalibrationNumber<2000; RateCalibrationNumber++){
-        bmi088.readSensor();
-        RateCalibrationRoll+=  -(bmi088.getGyroX_rads() * RadtoDeg);
-        RateCalibrationPitch+= +(bmi088.getGyroY_rads() * RadtoDeg);
-        RateCalibrationYaw+=   -(bmi088.getGyroZ_rads() * RadtoDeg);
-        sleep_ms(1);
-    }
-    RateCalibrationRoll=RateCalibrationRoll/RateCalibrationNumber;
-    RateCalibrationPitch=RateCalibrationPitch/RateCalibrationNumber;
-    RateCalibrationYaw=RateCalibrationYaw/RateCalibrationNumber;
+    //for(RateCalibrationNumber=0; RateCalibrationNumber<2000; RateCalibrationNumber++){
+    //    bmi088.readSensor();
+    //    RateCalibrationRoll+=  -(bmi088.getGyroX_rads() * RadtoDeg);
+    //    RateCalibrationPitch+= +(bmi088.getGyroY_rads() * RadtoDeg);
+    //    RateCalibrationYaw+=   -(bmi088.getGyroZ_rads() * RadtoDeg);
+    //    sleep_ms(1);
+    //}
+    //RateCalibrationRoll=RateCalibrationRoll/RateCalibrationNumber;
+    //RateCalibrationPitch=RateCalibrationPitch/RateCalibrationNumber;
+    //RateCalibrationYaw=RateCalibrationYaw/RateCalibrationNumber;
 
     gpio_put(LED_GREEN_L, 0);
     gpio_put(LED_GREEN_R, 0);
@@ -557,7 +557,7 @@ void loop() {
     if (MotorInput4 > 1000)MotorInput4 = 999;
 
     //Keep motors at 10% if throttle is low
-    int ThrottleIdle=100;
+    int ThrottleIdle=30;
     if (MotorInput1 < ThrottleIdle) MotorInput1 =  ThrottleIdle;
     if (MotorInput2 < ThrottleIdle) MotorInput2 =  ThrottleIdle;
     if (MotorInput3 < ThrottleIdle) MotorInput3 =  ThrottleIdle;
@@ -586,17 +586,17 @@ void loop() {
 
 
     // Debug output (reduce frequency to avoid spam)
-    //static int debug_counter = 0;
-    //if(debug_counter++ > 100) {
-    //    printf("                                         %.1f   %.1f\n", AngleRoll, AnglePitch);
-    //    printf("ACCL: X=%.1f, Y=%.1f, Z=%.1f | Angles: R=%.1f P=%.1f | Rates: R=%.1f P=%.1f Y=%.1f \n", 
-    //           AccX, AccY, AccZ, AngleRoll, AnglePitch, KalmanAngleRoll, KalmanAnglePitch, RateRoll, RatePitch, RateYaw);
-    //    printf("Motors: %.1f  %.1f  %.1f  %.1f \n", MotorInput1, MotorInput2, MotorInput3, MotorInput4);
-    //    printf("Receiver: R=%.1f P=%.1f T=%.1f Y=%.1f\n", 
-    //           ReceiverValue[0], ReceiverValue[1], ReceiverValue[2], ReceiverValue[3]);
-    //    
-    //    debug_counter = 0;
-    //}
+    static int debug_counter = 0;
+    if(debug_counter++ > 100) {
+        printf("                                         %.1f   %.1f\n", AngleRoll, AnglePitch);
+        printf("ACCL: X=%.1f, Y=%.1f, Z=%.1f | Angles: R=%.1f P=%.1f | Rates: R=%.1f P=%.1f Y=%.1f \n", 
+               AccX, AccY, AccZ, AngleRoll, AnglePitch, KalmanAngleRoll, KalmanAnglePitch, RateRoll, RatePitch, RateYaw);
+        printf("Motors: %.1f  %.1f  %.1f  %.1f \n", MotorInput1, MotorInput2, MotorInput3, MotorInput4);
+        printf("Receiver: R=%.1f P=%.1f T=%.1f Y=%.1f\n", 
+               ReceiverValue[0], ReceiverValue[1], ReceiverValue[2], ReceiverValue[3]);
+        
+        debug_counter = 0;
+    }
     
     
     //printf("Roll_angle: %f, Pitch_angle: %f\n", KalmanAngleRoll, KalmanAnglePitch);
