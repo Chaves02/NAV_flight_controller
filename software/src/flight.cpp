@@ -321,7 +321,7 @@ float ErrorAngleRoll, ErrorAnglePitch;
 //Define the values necessary for the outer loop PID controller, including the P, I and D parameters
 float PrevErrorAngleRoll, PrevErrorAnglePitch;
 float PrevItermAngleRoll, PrevItermAnglePitch;
-float PAngleRoll=10; float PAnglePitch=10;
+float PAngleRoll=8; float PAnglePitch=8;
 float IAngleRoll=0.5; float IAnglePitch=0.5;
 float DAngleRoll=1; float DAnglePitch=1;
 
@@ -410,6 +410,7 @@ void setup(){
     {
         printf("Error: %d\n", status);
     }
+    bmi088.setOdr(Bmi088::ODR_400HZ); // Set ODR to 400Hz
 
     // Initialize motors
     setup_motors();
@@ -504,11 +505,11 @@ void loop() {
     read_receiver();
 
     //Calculate desired angles from receiver inputs
-    DesiredAngleRoll = 0.04 * (ReceiverValue[0] - 1500); //limit to 20 degrees
-    DesiredAnglePitch = -0.04 * (ReceiverValue[1] - 1500);
+    DesiredAngleRoll = 0.02 * (ReceiverValue[0] - 1500); //limit to 10 degrees
+    DesiredAnglePitch = -0.02 * (ReceiverValue[1] - 1500);
 
     InputThrottle = ReceiverValue[2];
-    DesiredRateYaw = 0 * (ReceiverValue[3] - 1500); //limit to 25 degrees/s
+    DesiredRateYaw = 0.01 * (ReceiverValue[3] - 1500); //limit to 5 degrees/s
 
     // Calculate difference between desired and actual angles
     ErrorAngleRoll = DesiredAngleRoll - KalmanAngleRoll;
