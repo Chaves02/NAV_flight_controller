@@ -249,6 +249,7 @@ void read_receiver(void) {
     if (valid) {
         // Apply deadband to reduce oscillation around center values
         const float DEADBAND = 10.0f; // ±10 units around center
+        const float DEADBAND_YAW = 200.0f; // ±10 units for yaw
         
         // Center values (adjust based on your controller)
         const float CENTER_ROLL = 1500.0f;
@@ -262,7 +263,7 @@ void read_receiver(void) {
         if (fabs(temp_pitch - CENTER_PITCH) < DEADBAND) {
             temp_pitch = CENTER_PITCH;
         }
-        if (fabs(temp_yaw - CENTER_YAW) < DEADBAND) {
+        if (fabs(temp_yaw - CENTER_YAW) < DEADBAND_YAW) {
             temp_yaw = CENTER_YAW;
         }
         
@@ -321,9 +322,9 @@ float ErrorAngleRoll, ErrorAnglePitch;
 //Define the values necessary for the outer loop PID controller, including the P, I and D parameters
 float PrevErrorAngleRoll, PrevErrorAnglePitch;
 float PrevItermAngleRoll, PrevItermAnglePitch;
-float PAngleRoll=8; float PAnglePitch=8;
-float IAngleRoll=0.5; float IAnglePitch=0.5;
-float DAngleRoll=1; float DAnglePitch=1;
+float PAngleRoll=10; float PAnglePitch=10;
+float IAngleRoll=0; float IAnglePitch=0;
+float DAngleRoll=0; float DAnglePitch=0;
 
 // Create the function that calculates the predicted angle and uncertainty using Kalman equations
 void kalman_1d(float KalmanState, float KalmanUncertainty, float KalmanInput, float KalmanMeasurement) {
@@ -347,17 +348,17 @@ float InputRoll, InputThrottle, InputPitch, InputYaw;
 float PrevErrorRateRoll, PrevErrorRatePitch, PrevErrorRateYaw;
 float PrevItermRateRoll, PrevItermRatePitch, PrevItermRateYaw;
 float PIDReturn[]={0, 0, 0};
-float PRateRoll=10 ; float PRatePitch=10; float PRateYaw=30;  //0.6PRoll
-float IRateRoll=2 ; float IRatePitch=2; float IRateYaw=2;
-float DRateRoll=0.15 ; float DRatePitch=0.15; float DRateYaw=0.01; //0Dyaw
+float PRateRoll=9 ; float PRatePitch=9; float PRateYaw=30;  //0.6PRoll
+float IRateRoll=6 ; float IRatePitch=6; float IRateYaw=2;
+float DRateRoll=0.2 ; float DRatePitch=0.2; float DRateYaw=0.01; //0Dyaw
 float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
 
 /*   PID Equation   */
 void pid_equation(float Error, float P , float I, float D, float PrevError, float PrevIterm) {
   float Pterm=P*Error;
   float Iterm=PrevIterm+I*(Error+PrevError)*0.005/2;  //0.005 is the time step -> 200Hz
-  if (Iterm > 50) Iterm=50;
-  else if (Iterm <-50) Iterm=-50;
+  if (Iterm > 100) Iterm=100;
+  else if (Iterm <-100) Iterm=-100;
   float Dterm=D*(Error-PrevError)/0.005;
   float PIDOutput= Pterm+Iterm+Dterm;
   if (PIDOutput>100) PIDOutput=100;
@@ -411,6 +412,7 @@ void setup(){
         printf("Error: %d\n", status);
     }
     bmi088.setOdr(Bmi088::ODR_400HZ); // Set ODR to 400Hz
+    bmi088.setRange(Bmi088::ACCEL_RANGE_24G, Bmi088::GYRO_RANGE_2000DPS); // Set accelerometer to 12G and gyro to 2000DPS
 
     // Initialize motors
     setup_motors();
@@ -433,16 +435,16 @@ void setup(){
     sleep_ms(50);
     printf("Motors Initialized\n");
 
-    //for(RateCalibrationNumber=0; RateCalibrationNumber<2000; RateCalibrationNumber++){
-    //    bmi088.readSensor();
-    //    RateCalibrationRoll+=  -(bmi088.getGyroX_rads() * RadtoDeg);
-    //    RateCalibrationPitch+= +(bmi088.getGyroY_rads() * RadtoDeg);
-    //    RateCalibrationYaw+=   -(bmi088.getGyroZ_rads() * RadtoDeg);
-    //    sleep_ms(1);
-    //}
-    //RateCalibrationRoll=RateCalibrationRoll/RateCalibrationNumber;
-    //RateCalibrationPitch=RateCalibrationPitch/RateCalibrationNumber;
-    //RateCalibrationYaw=RateCalibrationYaw/RateCalibrationNumber;
+    for(RateCalibrationNumber=0; RateCalibrationNumber<2000; RateCalibrationNumber++){
+        bmi088.readSensor();
+        RateCalibrationRoll+=  -(bmi088.getGyroX_rads() * RadtoDeg);
+        RateCalibrationPitch+= +(bmi088.getGyroY_rads() * RadtoDeg);
+        RateCalibrationYaw+=   -(bmi088.getGyroZ_rads() * RadtoDeg);
+        sleep_ms(1);
+    }
+    RateCalibrationRoll=RateCalibrationRoll/RateCalibrationNumber;
+    RateCalibrationPitch=RateCalibrationPitch/RateCalibrationNumber;
+    RateCalibrationYaw=RateCalibrationYaw/RateCalibrationNumber;
 
     gpio_put(LED_GREEN_L, 0);
     gpio_put(LED_GREEN_R, 0);
@@ -482,11 +484,11 @@ void bmi_signals(){
 
     // Read gyroscope data
     RateRoll  = -bmi088.getGyroX_rads() * RadtoDeg - RateCalibrationRoll;   // X forward
-    RatePitch =  bmi088.getGyroY_rads() * RadtoDeg - RateCalibrationPitch;  // Y left
+    RatePitch =  bmi088.getGyroY_rads() * RadtoDeg + RateCalibrationPitch;  // Y left
     RateYaw   = -bmi088.getGyroZ_rads() * RadtoDeg - RateCalibrationYaw;    // Z up
 
     AngleRoll  = -atan2(AccY, sqrt(AccX * AccX + AccZ * AccZ)) * RadtoDeg; //to degrees
-    AnglePitch = -atan2(AccX, sqrt(AccY * AccY + AccZ * AccZ)) * RadtoDeg; //to degrees
+    AnglePitch = atan2(AccX, sqrt(AccY * AccY + AccZ * AccZ)) * RadtoDeg - 1.5; //to degrees // -1.5 faz andar para trás para compensar bateria
 }
 
 void loop() {
@@ -505,11 +507,11 @@ void loop() {
     read_receiver();
 
     //Calculate desired angles from receiver inputs
-    DesiredAngleRoll = 0.02 * (ReceiverValue[0] - 1500); //limit to 10 degrees
+    DesiredAngleRoll  = 0.02 * (ReceiverValue[0] - 1500); //limit to 10 degrees
     DesiredAnglePitch = -0.02 * (ReceiverValue[1] - 1500);
 
     InputThrottle = ReceiverValue[2];
-    DesiredRateYaw = 0.01 * (ReceiverValue[3] - 1500); //limit to 5 degrees/s
+    DesiredRateYaw = 0.1 * (ReceiverValue[3] - 1500); //limit to 5 degrees/s
 
     // Calculate difference between desired and actual angles
     ErrorAngleRoll = DesiredAngleRoll - KalmanAngleRoll;
