@@ -33,6 +33,7 @@ include_directories(${PICO_SDK_PATH}/src/rp2_common/hardware_timer/include)
 include_directories(${PICO_SDK_PATH}/src/rp2_common/pico_platform/include)
 include_directories(${PICO_SDK_PATH}/src/rp2_common/hardware_i2c/include)
 include_directories(${PICO_SDK_PATH}/src/rp2_common/hardware_adc/include)
+include_directories(${PICO_SDK_PATH}/src/rp2_common/pico_time/include)
 
 # Add source files for libraries
 add_library(drone_leds
@@ -132,14 +133,45 @@ pico_add_extra_outputs(flight)
 # Link libraries - add the specific driver and interface libraries you need
 target_link_libraries(flight
         pico_stdlib
+        pico_time
+        pico_multicore
         rp_agrolib_motors
         rp_agrolib_vl53l8cx
         rp_agrolib_bmi088
+        rp_agrolib_uart
         hardware_gpio
         hardware_pwm
         hardware_timer
         hardware_adc
         rp_agrolib_i2c
+)
+
+################################################################
+# docking
+#################################################################
+
+add_executable(docking
+        src/docking.cpp)
+
+pico_enable_stdio_usb(docking 1)
+pico_enable_stdio_uart(docking 0)
+
+pico_add_extra_outputs(docking)
+
+# Link libraries - add the specific driver and interface libraries you need
+target_link_libraries(docking
+
+        pico_stdlib
+        pico_stdio_usb
+        pico_time
+
+        rp_agrolib_uart
+        rp_agrolib_i2c
+
+        hardware_gpio
+        hardware_pwm
+        hardware_timer
+        hardware_adc
 )
 
 ############################################################

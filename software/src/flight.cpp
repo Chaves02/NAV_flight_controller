@@ -1,4 +1,6 @@
 #include "pico/stdlib.h"
+#include "pico/multicore.h"
+#include "pico/critical_section.h"
 #include <time.h>
 #include <cmath>
 #include <cstring>
@@ -25,6 +27,13 @@
 /*   receiver/controller   */
 float ReceiverValue[]={0, 0, 0, 0, 0, 0, 0, 0};
 int ChannelNumber=0;
+
+//************************Critical Section for Thread Safety**********************************//
+critical_section_t rc_data_cs;
+// Core 1 status flag
+static volatile bool core1_running = false;
+
+//********************************Receiver Data Structure**++********************************//
 
 typedef struct {
     float roll;
@@ -88,76 +97,86 @@ bool parse_rc_command(const char* cmd) {
         }
     }
     
-    // All values are valid, update atomically    
+    // All values are valid, update atomically using critical section
+    critical_section_enter_blocking(&rc_data_cs);   
     rc_data.roll = temp_values[0];
     rc_data.pitch = temp_values[1];
     rc_data.throttle = temp_values[2];
     rc_data.yaw = temp_values[3];
     rc_data.data_valid = true;
     rc_data.last_update = time_us_64();
+    critical_section_exit(&rc_data_cs);
 
     return true;
 }
 
 // Improved UART reading with better buffer management
-void read_uart_data() {
+void uart_reader_core1() {
     static char buffer[MAX_BUFFER_LEN];
     static int buffer_index = 0;
     static uint64_t last_char_time = 0;
+
+    printf("Core 1: UART reader started\n");
+    core1_running = true;
     
-    uint64_t current_time = time_us_64();
-    
-    // Check for timeout on incomplete message
-    if (buffer_index > 0 && (current_time - last_char_time) > TIMEOUT_US) {
-        //printf("UART timeout, clearing buffer: %.*s\n", buffer_index, buffer);
-        buffer_index = 0;
-    }
-    
-    // Read all available characters
-    while (uart_is_readable(UART_ID)) {
-        char c = uart_getc(UART_ID);
-        last_char_time = current_time;
+    while(true){
         
-        // Skip null characters and other control chars except CR/LF
-        if (c == 0 || (c < 32 && c != '\r' && c != '\n')) {
-            continue;
-        }
+        uint64_t current_time = time_us_64();
         
-        // Check for end of message
-        if (c == '\n' || c == '\r') {
-            if (buffer_index > 0) {
-                buffer[buffer_index] = '\0';  // Null-terminate
-                
-                // Process different message types
-                if (strncmp(buffer, "+C", 2) == 0) {
-                    printf("Connected to RC\n");
-                } else if (strncmp(buffer, "+D", 2) == 0) {
-                    printf("Disconnected from RC\n");
-                } else if (strstr(buffer, "RC,") != NULL) {
-                    // Handle RC command (with or without +B prefix)
-                    parse_rc_command(buffer);
-                } else {
-                    //printf("Unknown command: %s\n", buffer);
-                }
-                
-                // Reset buffer for next message
-                buffer_index = 0;
-            }
-        } 
-        // Add character to buffer if there's room
-        else if (buffer_index < MAX_BUFFER_LEN - 1) {
-            buffer[buffer_index++] = c;
-        } else {
-            // Buffer overflow - reset and log
-            //printf("UART buffer overflow, resetting\n");
+        // Check for timeout on incomplete message
+        if (buffer_index > 0 && (current_time - last_char_time) > TIMEOUT_US) {
+            //printf("UART timeout, clearing buffer: %.*s\n", buffer_index, buffer);
             buffer_index = 0;
         }
+        
+        // Read all available characters
+        while (uart_is_readable(UART_ID)) {
+            char c = uart_getc(UART_ID);
+            last_char_time = current_time;
+            
+            // Skip null characters and other control chars except CR/LF
+            if (c == 0 || (c < 32 && c != '\r' && c != '\n')) {
+                continue;
+            }
+            
+            // Check for end of message
+            if (c == '\n' || c == '\r') {
+                if (buffer_index > 0) {
+                    buffer[buffer_index] = '\0';  // Null-terminate
+                    
+                    // Process different message types
+                    if (strncmp(buffer, "+C", 2) == 0) {
+                        printf("Connected to RC\n");
+                    } else if (strncmp(buffer, "+D", 2) == 0) {
+                        printf("Disconnected from RC\n");
+                    } else if (strstr(buffer, "RC,") != NULL) {
+                        // Handle RC command (with or without +B prefix)
+                        parse_rc_command(buffer);
+                    } else {
+                        //printf("Unknown command: %s\n", buffer);
+                    }
+                    
+                    // Reset buffer for next message
+                    buffer_index = 0;
+                }
+            } 
+            // Add character to buffer if there's room
+            else if (buffer_index < MAX_BUFFER_LEN - 1) {
+                buffer[buffer_index++] = c;
+            } else {
+                // Buffer overflow - reset and log
+                //printf("UART buffer overflow, resetting\n");
+                buffer_index = 0;
+            }
+        }
+        sleep_us(100); // Yield to avoid busy-waiting
     }
 }
 
 // Thread-safe function to get RC values
 void get_rc_values(float* roll, float* pitch, float* throttle, float* yaw, bool* valid) {
     
+    critical_section_enter_blocking(&rc_data_cs);
     *roll = rc_data.roll;
     *pitch = rc_data.pitch;
     *throttle = rc_data.throttle;
@@ -170,14 +189,12 @@ void get_rc_values(float* roll, float* pitch, float* throttle, float* yaw, bool*
         *valid = false;
         printf("RC data stale, disabling\n");
     }
+    critical_section_exit(&rc_data_cs);
 }
 
 // Function to read receiver values
 void read_receiver(void) {
-    // Read latest UART data first
-    read_uart_data();
     
-    // Get RC values safely
     bool valid;
     float temp_roll, temp_pitch, temp_throttle, temp_yaw;
     get_rc_values(&temp_roll, &temp_pitch, &temp_throttle, &temp_yaw, &valid);
@@ -324,7 +341,10 @@ void setup(){
 
     stdio_init_all();
     sleep_ms(2000); // Allow time for USB enumeration
-    printf("\nFlight Controller starting...\n");
+    printf("\nDual-Core Flight Controller starting...\n");
+
+    // Initialize critical section for thread-safe RC data access
+    critical_section_init(&rc_data_cs);
 
     // Initialize GPIO for LEDs
     gpio_init(LED_GREEN_L);
@@ -341,7 +361,20 @@ void setup(){
     gpio_put(LED_RED_R, 0);
     sleep_ms(1000);
 
-    /*BMI begin*/
+    // Initialize UART for Core 1
+    int irq = uart_setup(UART_ID, UART_RX, UART_TX, 115200, 8, 1, UART_PARITY_NONE);
+    uart_set_fifo_enabled(UART_ID, true);
+
+    // Start Core 1 with UART reader
+    printf("Starting Core 1 for UART processing...\n");
+    multicore_launch_core1(uart_reader_core1);
+    // Wait for Core 1 to start
+    while (!core1_running) {
+        sleep_ms(10);
+    }
+    printf("Core 1 started successfully\n");
+
+    // BMI initialization
     int status = bmi088.begin();
     if (status < 0)
     {
@@ -354,6 +387,7 @@ void setup(){
     setup_motors();
     motor_test();
 
+    printf("Starting gyro calibration...\n");
     for(RateCalibrationNumber=0; RateCalibrationNumber<2000; RateCalibrationNumber++){
         bmi088.readSensor();
         RateCalibrationRoll+=  -(bmi088.getGyroX_rads() * RadtoDeg);
@@ -364,6 +398,7 @@ void setup(){
     RateCalibrationRoll=RateCalibrationRoll/RateCalibrationNumber;
     RateCalibrationPitch=RateCalibrationPitch/RateCalibrationNumber;
     RateCalibrationYaw=RateCalibrationYaw/RateCalibrationNumber;
+    printf("Calibration complete\n");
 
     gpio_put(LED_GREEN_L, 0);
     gpio_put(LED_GREEN_R, 0);
@@ -371,21 +406,27 @@ void setup(){
     gpio_put(LED_RED_R, 1);
     sleep_ms(1000);
 
-    // Avoid accidental liftoff
-    //throttle = 0; roll = 0; pitch = 0; yaw = 0;
+    // Initialize RC data
+    critical_section_enter_blocking(&rc_data_cs);
     rc_data.roll = 1500.0f;
     rc_data.pitch = 1500.0f;
     rc_data.throttle = 0.0f;
     rc_data.yaw = 1500.0f;
     rc_data.data_valid = false;
     rc_data.last_update = 0;
+    critical_section_exit(&rc_data_cs);
 
-    while (ReceiverValue[2] < 10 || ReceiverValue[2] > 60) {
+    // Wait for valid throttle range before arming
+    while (ReceiverValue[2] < 10 || ReceiverValue[2] > 100) {
       read_receiver();
       printf("Throttle %f\n", ReceiverValue[2]);
       sleep_ms(200);
     }
     printf("Armed\n");
+    set_motor_speed(MOTOR1_PIN, 50); // Set motors to idle speed
+    set_motor_speed(MOTOR2_PIN, 50);
+    set_motor_speed(MOTOR3_PIN, 50);
+    set_motor_speed(MOTOR4_PIN, 50);
     sleep_ms(1000);
 
     //Last line of setup - time variable for control loop
@@ -510,9 +551,9 @@ void loop() {
     // Debug output (reduce frequency to avoid spam)
     static int debug_counter = 0;
     if(debug_counter++ > 100) {
-        printf("                                         %.1f   %.1f\n", AngleRoll, AnglePitch);
-        printf("ACCL: X=%.1f, Y=%.1f, Z=%.1f | Angles: R=%.1f P=%.1f | Rates: R=%.1f P=%.1f Y=%.1f \n", 
-               AccX, AccY, AccZ, AngleRoll, AnglePitch, KalmanAngleRoll, KalmanAnglePitch, RateRoll, RatePitch, RateYaw);
+        printf("                               Angles:   %.1f   %.1f\n", AngleRoll, AnglePitch);
+        printf("ACCL: X=%.1f, Y=%.1f, Z=%.1f | Kalman: R=%.1f P=%.1f | Rates: R=%.1f P=%.1f Y=%.1f \n", 
+               AccX, AccY, AccZ, KalmanAngleRoll, KalmanAnglePitch, RateRoll, RatePitch, RateYaw);
         printf("Motors: %.1f  %.1f  %.1f  %.1f \n", MotorInput1, MotorInput2, MotorInput3, MotorInput4);
         printf("Receiver: R=%.1f P=%.1f T=%.1f Y=%.1f\n", 
                ReceiverValue[0], ReceiverValue[1], ReceiverValue[2], ReceiverValue[3]);
@@ -527,20 +568,19 @@ void loop() {
     {
         //printf("Waiting for next loop...\n");
         current_time = time_us_32();
+        tight_loop_contents();
     }
     LoopTimer = time_us_32();
 }
 
 int main() {
 
-    int irq = uart_setup(UART_ID, UART_RX, UART_TX, 115200, 8, 1, UART_PARITY_NONE);
-    //uart_enable_interrupt(UART_ID, irq, on_uart_rx);
-    //last_rx_time = time_us_64();
-    uart_set_fifo_enabled(UART_ID, true); // Enable FIFO for better performance
-
     setup();
+
+    printf("Core 0: Starting main flight control loop\n");
     while (1) {
         loop();
-        sleep_ms(1); // Avoid 100% CPU usage
     }
+
+    return 0;
 }
