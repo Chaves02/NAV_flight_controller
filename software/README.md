@@ -20,6 +20,3 @@ make
 ```sh
 cp /home/chaves/Documentos/NAV_flight_controller/software/build/flight.uf2 /media/chaves/RPI-RP2
 ```
-
-![Build Process](chatuml-diagram.png)
-
