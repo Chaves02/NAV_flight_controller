@@ -594,7 +594,7 @@ void setup()
     }
 
     // Initialize motor PWM
-    motors_init();
+    setup_motors();
 
     // Test motors
     motor_test();
