@@ -5,73 +5,9 @@
 #include <cstdlib>   // For strtof
 
 #include "rp_agrolib_motors.h"
-#define MOTOR1_PIN 24
-#define MOTOR2_PIN 14
-#define MOTOR3_PIN 10
-#define MOTOR4_PIN 2
-
 //M1 = 24, M2 = 14, M3 = 10, M4 = 2
 
-void setup_motors() {
-    // Initialize PWM for each motor
-    // For each pin, we need to:
-    // 1. Set the GPIO function to PWM
-    // 2. Find the PWM slice and channel for each GPIO
-    // 3. Set the clock divider to achieve desired frequency
-    // 4. Set the wrap (resolution)
-    // 5. Enable the PWM slice
-
-    // Motor 1
-    gpio_set_function(MOTOR1_PIN, GPIO_FUNC_PWM);
-    uint slice_num1 = pwm_gpio_to_slice_num(MOTOR1_PIN);
-    uint channel1 = pwm_gpio_to_channel(MOTOR1_PIN);
-    
-    // Motor 2
-    gpio_set_function(MOTOR2_PIN, GPIO_FUNC_PWM);
-    uint slice_num2 = pwm_gpio_to_slice_num(MOTOR2_PIN);
-    uint channel2 = pwm_gpio_to_channel(MOTOR2_PIN);
-    
-    // Motor 3
-    gpio_set_function(MOTOR3_PIN, GPIO_FUNC_PWM);
-    uint slice_num3 = pwm_gpio_to_slice_num(MOTOR3_PIN);
-    uint channel3 = pwm_gpio_to_channel(MOTOR3_PIN);
-    
-    // Motor 4
-    gpio_set_function(MOTOR4_PIN, GPIO_FUNC_PWM);
-    uint slice_num4 = pwm_gpio_to_slice_num(MOTOR4_PIN);
-    uint channel4 = pwm_gpio_to_channel(MOTOR4_PIN);
-
-    // Calculate frequency parameters
-    // The Pico's system clock runs at 125 MHz by default
-    // To get 250 Hz with 2000 steps (0-1999) resolution:
-    // Clock divider = 125,000,000 / (250 * 2000) = 250
-    float clock_div = 650.0f;
-    uint16_t wrap = 1000 - 1; // Range from 0 to 999
-
-    // Configure PWM slices
-    // Note: If motors share the same slice, we only need to configure once
-    pwm_config config = pwm_get_default_config();
-    pwm_config_set_clkdiv(&config, clock_div);
-    pwm_config_set_wrap(&config, wrap);
-
-    // Initialize each PWM slice with the configuration
-    pwm_init(slice_num1, &config, true);
-    
-    // Only initialize other slices if they're different from slice_num1
-    if (slice_num2 != slice_num1) pwm_init(slice_num2, &config, true);
-    if (slice_num3 != slice_num1 && slice_num3 != slice_num2) pwm_init(slice_num3, &config, true);
-    if (slice_num4 != slice_num1 && slice_num4 != slice_num2 && slice_num4 != slice_num3) 
-        pwm_init(slice_num4, &config, true);
-    
-    // Set initial PWM level to 0 for all motors
-    pwm_set_gpio_level(MOTOR1_PIN, 0);
-    pwm_set_gpio_level(MOTOR2_PIN, 0);
-    pwm_set_gpio_level(MOTOR3_PIN, 0);
-    pwm_set_gpio_level(MOTOR4_PIN, 0);
-}
-
 #include "rp_agrolib_uart.h"
-
 // UART configuration for Bluetooth module
 #define UART_ID uart0
 #define UART_RX 17
@@ -416,24 +352,7 @@ void setup(){
 
     // Initialize motors
     setup_motors();
-
-    set_motor_speed(MOTOR1_PIN, 100);
-    sleep_ms(50);
-    set_motor_speed(MOTOR1_PIN, 0);
-    sleep_ms(50);
-    set_motor_speed(MOTOR2_PIN, 100);
-    sleep_ms(50);
-    set_motor_speed(MOTOR2_PIN, 0);
-    sleep_ms(50);
-    set_motor_speed(MOTOR3_PIN, 100);
-    sleep_ms(50);
-    set_motor_speed(MOTOR3_PIN, 0);
-    sleep_ms(50);
-    set_motor_speed(MOTOR4_PIN, 100);
-    sleep_ms(50);
-    set_motor_speed(MOTOR4_PIN, 0);
-    sleep_ms(50);
-    printf("Motors Initialized\n");
+    motor_test();
 
     for(RateCalibrationNumber=0; RateCalibrationNumber<2000; RateCalibrationNumber++){
         bmi088.readSensor();
