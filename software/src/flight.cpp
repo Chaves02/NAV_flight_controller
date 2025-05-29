@@ -257,7 +257,7 @@ float AngleRoll, AnglePitch;
 float RateCalibrationPitch=0, RateCalibrationRoll=0, RateCalibrationYaw=0;
 float AcclCalibrationX=0, AcclCalibrationY=0, AcclCalibrationZ=0;
 int RateCalibrationNumber=0;
-float RadtoDeg=180/3.14159265358979323846;
+float RadtoDeg=180/M_PI;
 
 uint32_t LoopTimer; //lengh of each control loop
 
@@ -275,7 +275,7 @@ float ErrorAngleRoll, ErrorAnglePitch;
 //Define the values necessary for the outer loop PID controller, including the P, I and D parameters
 float PrevErrorAngleRoll, PrevErrorAnglePitch;
 float PrevItermAngleRoll, PrevItermAnglePitch;
-float PAngleRoll=10; float PAnglePitch=10;
+float PAngleRoll=2; float PAnglePitch=PAngleRoll; //0.6PRoll
 float IAngleRoll=0; float IAnglePitch=0;
 float DAngleRoll=0; float DAnglePitch=0;
 
@@ -302,7 +302,7 @@ float PrevErrorRateRoll, PrevErrorRatePitch, PrevErrorRateYaw;
 float PrevItermRateRoll, PrevItermRatePitch, PrevItermRateYaw;
 float PIDReturn[]={0, 0, 0};
 float PRateRoll=1 ; float PRatePitch=PRateRoll; float PRateYaw=45;  //0.6PRoll
-float IRateRoll=7 ; float IRatePitch=IRateRoll; float IRateYaw=10;
+float IRateRoll=3.5 ; float IRatePitch=IRateRoll; float IRateYaw=10;
 float DRateRoll=0.05 ; float DRatePitch=DRateRoll; float DRateYaw=0.01; //0Dyaw
 float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
 
@@ -390,9 +390,9 @@ void setup(){
     printf("Starting gyro calibration...\n");
     for(RateCalibrationNumber=0; RateCalibrationNumber<2000; RateCalibrationNumber++){
         bmi088.readSensor();
-        RateCalibrationRoll+=  -(bmi088.getGyroX_rads() * RadtoDeg);
-        RateCalibrationPitch+= +(bmi088.getGyroY_rads() * RadtoDeg);
-        RateCalibrationYaw+=   -(bmi088.getGyroZ_rads() * RadtoDeg);
+        RateCalibrationRoll+=  -bmi088.getGyroX_degs();
+        RateCalibrationPitch+= +bmi088.getGyroY_degs();
+        RateCalibrationYaw+=   +bmi088.getGyroZ_degs();
         sleep_ms(1);
     }
     RateCalibrationRoll=RateCalibrationRoll/RateCalibrationNumber;
@@ -437,17 +437,17 @@ void bmi_signals(){
 
     bmi088.readSensor();
 
-    // Read accelerometer data   //1G = 9.81m/s^2
-    AccX = -bmi088.getAccelX_mss() / 9.81; // X forward seeing the drone from the back
-    AccY =  bmi088.getAccelY_mss() / 9.81; // Y left
-    AccZ = -bmi088.getAccelZ_mss() / 9.81; // Z up
+    // Read accelerometer data    // 1G = 9.807 m/s^2
+    AccX = -bmi088.getAccelX_G(); // X forward seeing the drone from the back
+    AccY =  bmi088.getAccelY_G(); // Y left
+    AccZ =  bmi088.getAccelZ_G(); // Z up
 
     // Read gyroscope data
-    RateRoll  = -bmi088.getGyroX_rads() * RadtoDeg - RateCalibrationRoll;   // X forward
-    RatePitch =  bmi088.getGyroY_rads() * RadtoDeg + RateCalibrationPitch;  // Y left
-    RateYaw   = -bmi088.getGyroZ_rads() * RadtoDeg - RateCalibrationYaw;    // Z up
+    RateRoll  = -bmi088.getGyroX_degs() - RateCalibrationRoll;   // X forward
+    RatePitch =  bmi088.getGyroY_degs() - RateCalibrationPitch;  // Y left
+    RateYaw   =  bmi088.getGyroZ_degs() - RateCalibrationYaw;    // Z up
 
-    AngleRoll  = -atan2(AccY, sqrt(AccX * AccX + AccZ * AccZ)) * RadtoDeg; //to degrees
+    AngleRoll  =  atan2(AccY, sqrt(AccX * AccX + AccZ * AccZ)) * RadtoDeg; //to degrees
     AnglePitch = -atan2(AccX, sqrt(AccY * AccY + AccZ * AccZ)) * RadtoDeg; //to degrees
 }
 
@@ -467,11 +467,11 @@ void loop() {
     read_receiver();
 
     //Calculate desired angles from receiver inputs
-    DesiredAngleRoll  = 0.03 * (ReceiverValue[0] - 1500); //limit to 15 degrees
-    DesiredAnglePitch = -0.03 * (ReceiverValue[1] - 1500);
+    DesiredAngleRoll  = 0.04 * (ReceiverValue[0] - 1500); //limit to 20 degrees
+    DesiredAnglePitch = 0.04 * (ReceiverValue[1] - 1500);
 
     InputThrottle = ReceiverValue[2];
-    DesiredRateYaw = 0.2 * (ReceiverValue[3] - 1500); //limit to 10 degrees/s
+    DesiredRateYaw = 0.1 * (ReceiverValue[3] - 1500); //limit to 50 degrees/s
 
     // Calculate difference between desired and actual angles
     ErrorAngleRoll = DesiredAngleRoll - KalmanAngleRoll;
@@ -508,10 +508,10 @@ void loop() {
     if (InputThrottle > 800) InputThrottle = 800; //limit throttle to 80% to permit roll, pitch and yaw estabilization
 
     // Calculate motor inputs
-    MotorInput1 = InputThrottle-InputRoll+InputPitch+InputYaw;
-    MotorInput2 = InputThrottle-InputRoll-InputPitch-InputYaw;
-    MotorInput3 = InputThrottle+InputRoll-InputPitch+InputYaw;
-    MotorInput4 = InputThrottle+InputRoll+InputPitch-InputYaw;
+    MotorInput1 = InputThrottle-InputRoll-InputPitch+InputYaw;
+    MotorInput2 = InputThrottle-InputRoll+InputPitch-InputYaw;
+    MotorInput3 = InputThrottle+InputRoll+InputPitch+InputYaw;
+    MotorInput4 = InputThrottle+InputRoll-InputPitch-InputYaw;
 
     //Limit motor inputs to 0-1000 microseconds
     if (MotorInput1 > 1000)MotorInput1 = 999;
