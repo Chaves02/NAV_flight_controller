@@ -281,8 +281,8 @@ float DAngleRoll=0; float DAnglePitch=0;
 
 // Create the function that calculates the predicted angle and uncertainty using Kalman equations
 void kalman_1d(float KalmanState, float KalmanUncertainty, float KalmanInput, float KalmanMeasurement) {
-    KalmanState = KalmanState+0.005*KalmanInput;
-    KalmanUncertainty = KalmanUncertainty + 0.005*0.005 * 4*4; //std desviation of accl 4º
+    KalmanState = KalmanState+0.004*KalmanInput;
+    KalmanUncertainty = KalmanUncertainty + 0.004*0.004 * 4*4; //std desviation of accl 4º
     float KalmanGain=KalmanUncertainty * 1/(1*KalmanUncertainty + 3*3); //std desviation of gyro 3º
     KalmanState = KalmanState+KalmanGain * (KalmanMeasurement-KalmanState);
     KalmanUncertainty=(1-KalmanGain) * KalmanUncertainty;
@@ -301,21 +301,21 @@ float InputRoll, InputThrottle, InputPitch, InputYaw;
 float PrevErrorRateRoll, PrevErrorRatePitch, PrevErrorRateYaw;
 float PrevItermRateRoll, PrevItermRatePitch, PrevItermRateYaw;
 float PIDReturn[]={0, 0, 0};
-float PRateRoll=9 ; float PRatePitch=9; float PRateYaw=30;  //0.6PRoll
-float IRateRoll=6 ; float IRatePitch=6; float IRateYaw=2;
-float DRateRoll=0.2 ; float DRatePitch=0.2; float DRateYaw=0.01; //0Dyaw
+float PRateRoll=1 ; float PRatePitch=PRateRoll; float PRateYaw=45;  //0.6PRoll
+float IRateRoll=7 ; float IRatePitch=IRateRoll; float IRateYaw=10;
+float DRateRoll=0.05 ; float DRatePitch=DRateRoll; float DRateYaw=0.01; //0Dyaw
 float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
 
 /*   PID Equation   */
 void pid_equation(float Error, float P , float I, float D, float PrevError, float PrevIterm) {
   float Pterm=P*Error;
-  float Iterm=PrevIterm+I*(Error+PrevError)*0.005/2;  //0.005 is the time step -> 200Hz
-  if (Iterm > 100) Iterm=100;
-  else if (Iterm <-100) Iterm=-100;
-  float Dterm=D*(Error-PrevError)/0.005;
+  float Iterm=PrevIterm+I*(Error+PrevError)*0.004/2;  //0.004 is the time step -> 250Hz
+  if (Iterm > 200) Iterm=200;
+  else if (Iterm <-200) Iterm=-200;
+  float Dterm=D*(Error-PrevError)/0.004;
   float PIDOutput= Pterm+Iterm+Dterm;
-  if (PIDOutput>100) PIDOutput=100;
-  else if (PIDOutput <-100) PIDOutput=-100;
+  if (PIDOutput>200) PIDOutput=200;
+  else if (PIDOutput <-200) PIDOutput=-200;
 
   PIDReturn[0]=PIDOutput;
   PIDReturn[1]=Error;
@@ -381,7 +381,7 @@ void setup(){
         printf("Error: %d\n", status);
     }
     bmi088.setOdr(Bmi088::ODR_400HZ); // Set ODR to 400Hz
-    bmi088.setRange(Bmi088::ACCEL_RANGE_24G, Bmi088::GYRO_RANGE_2000DPS); // Set accelerometer to 12G and gyro to 2000DPS
+    bmi088.setRange(Bmi088::ACCEL_RANGE_24G, Bmi088::GYRO_RANGE_2000DPS);
 
     // Initialize motors
     setup_motors();
@@ -448,7 +448,7 @@ void bmi_signals(){
     RateYaw   = -bmi088.getGyroZ_rads() * RadtoDeg - RateCalibrationYaw;    // Z up
 
     AngleRoll  = -atan2(AccY, sqrt(AccX * AccX + AccZ * AccZ)) * RadtoDeg; //to degrees
-    AnglePitch = atan2(AccX, sqrt(AccY * AccY + AccZ * AccZ)) * RadtoDeg - 1.5; //to degrees // -1.5 faz andar para trás para compensar bateria
+    AnglePitch = -atan2(AccX, sqrt(AccY * AccY + AccZ * AccZ)) * RadtoDeg; //to degrees
 }
 
 void loop() {
@@ -467,11 +467,11 @@ void loop() {
     read_receiver();
 
     //Calculate desired angles from receiver inputs
-    DesiredAngleRoll  = 0.02 * (ReceiverValue[0] - 1500); //limit to 10 degrees
-    DesiredAnglePitch = -0.02 * (ReceiverValue[1] - 1500);
+    DesiredAngleRoll  = 0.03 * (ReceiverValue[0] - 1500); //limit to 15 degrees
+    DesiredAnglePitch = -0.03 * (ReceiverValue[1] - 1500);
 
     InputThrottle = ReceiverValue[2];
-    DesiredRateYaw = 0.1 * (ReceiverValue[3] - 1500); //limit to 5 degrees/s
+    DesiredRateYaw = 0.2 * (ReceiverValue[3] - 1500); //limit to 10 degrees/s
 
     // Calculate difference between desired and actual angles
     ErrorAngleRoll = DesiredAngleRoll - KalmanAngleRoll;
@@ -505,7 +505,7 @@ void loop() {
        PrevErrorRateYaw=PIDReturn[1]; 
        PrevItermRateYaw=PIDReturn[2];
 
-    if (InputThrottle > 600) InputThrottle = 600; //limit throttle to 80% to permit roll, pitch and yaw estabilization
+    if (InputThrottle > 800) InputThrottle = 800; //limit throttle to 80% to permit roll, pitch and yaw estabilization
 
     // Calculate motor inputs
     MotorInput1 = InputThrottle-InputRoll+InputPitch+InputYaw;
@@ -564,7 +564,7 @@ void loop() {
     
     //printf("Roll_angle: %f, Pitch_angle: %f\n", KalmanAngleRoll, KalmanAnglePitch);
     uint32_t current_time = time_us_32();
-    while (current_time - LoopTimer < 5000) //200Hz
+    while (current_time - LoopTimer < 4000) //250Hz
     {
         //printf("Waiting for next loop...\n");
         current_time = time_us_32();
