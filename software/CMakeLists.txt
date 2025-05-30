@@ -122,16 +122,16 @@ target_link_libraries(nav_flight_controller
 # flight
 #################################################################
 
-add_executable(flight
-        src/flight.cpp)
+add_executable(angle_mode
+        src/angle_mode.cpp)
 
-pico_enable_stdio_usb(flight 1)
-pico_enable_stdio_uart(flight 0)
+pico_enable_stdio_usb(angle_mode 1)
+pico_enable_stdio_uart(angle_mode 0)
 
-pico_add_extra_outputs(flight)
+pico_add_extra_outputs(angle_mode)
 
 # Link libraries - add the specific driver and interface libraries you need
-target_link_libraries(flight
+target_link_libraries(angle_mode
         pico_stdlib
         pico_time
         pico_multicore
@@ -164,6 +164,7 @@ target_link_libraries(docking
         pico_stdlib
         pico_stdio_usb
         pico_time
+        pico_multicore
 
         rp_agrolib_uart
         rp_agrolib_i2c
@@ -172,6 +173,7 @@ target_link_libraries(docking
         hardware_pwm
         hardware_timer
         hardware_adc
+        hardware_spi
 )
 
 ############################################################
