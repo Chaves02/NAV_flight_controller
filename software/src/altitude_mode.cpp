@@ -283,6 +283,28 @@ float AccZInertial,AccZCalibration = 0;
 uint32_t last_tof_reading = 0;
 bool tof_data_ready = false;
 
+//////////////////////////////////////////////////////////////Altitude and Velocity Control///////////////////////////////////////////////////////////////
+
+// Simple altitude and velocity tracking using only ToF sensor
+float AltitudeKalman, VelocityVerticalKalman;
+float PrevAltitudeToF = 0;
+uint64_t PrevToFTime = 0;
+bool first_tof_reading = true;
+
+// Low-pass filter for velocity smoothing
+float velocity_alpha = 0.4f; // Adjust this value (0.1-0.5) for smoothing vs responsiveness --------------> Lower values (0.1-0.2) = more smoothing, higher values (0.4-0.5) = more responsive
+float VelocityVerticalFiltered = 0;
+
+// Moving average filter for additional smoothing (optional)
+#define VELOCITY_FILTER_SIZE 5
+float velocity_buffer[VELOCITY_FILTER_SIZE] = {0};
+int velocity_buffer_index = 0;
+bool velocity_buffer_full = false;
+
+float DesiredVelocityVertical, ErrorVelocityVertical;
+float PVelocityVertical=3.5; float IVelocityVertical=0.0015; float DVelocityVertical=0.01; 
+float PrevErrorVelocityVertical, PrevItermVelocityVertical;
+
 ///////////////////////////////////////////////////////////Angle and Rate Control///////////////////////////////////////////////////////////
 
 // Define predicted angles and uncertainties
@@ -347,129 +369,149 @@ void pid_equation(float Error, float P , float I, float D, float PrevError, floa
 }
 
 void reset_pid(void) {
+    // Reset PID error and integral values for the inner PID loop
     PrevErrorRateRoll=0; PrevErrorRatePitch=0; PrevErrorRateYaw=0;
     PrevItermRateRoll=0; PrevItermRatePitch=0; PrevItermRateYaw=0;
 
     //reset PID error and integral values for the outer PID loop as well
     PrevErrorAngleRoll=0; PrevErrorAnglePitch=0;
     PrevItermAngleRoll=0; PrevItermAnglePitch=0;
+
+    // Reset altitude PID
+    PrevErrorVelocityVertical = 0;
+    PrevItermVelocityVertical = 0;
 }
 
 //////////////////////////////////////////////////////////////////ALtitude Control///////////////////////////////////////////////////////////////
 
-// Simple 2x2 matrix operations for Kalman filter
-typedef struct {
-    float data[2][2];
-} Matrix2x2;
-
-typedef struct {
-    float data[2];
-} Vector2;
-
-float AltitudeKalman, VelocityVerticalKalman;
-Matrix2x2 F, P, Q, I_mat;
-Vector2 G, S;
-float H[2] = {1, 0};
-float R = 25.0; // Measurement noise for ToF sensor
-
-float DesiredVelocityVertical, ErrorVelocityVertical;
-float PVelocityVertical=3.5; float IVelocityVertical=0.0015; float DVelocityVertical=0.01; 
-float PrevErrorVelocityVertical, PrevItermVelocityVertical;
-
-// Matrix operations
-void matrix_multiply_2x2(Matrix2x2 *result, Matrix2x2 *a, Matrix2x2 *b) {
-    for(int i = 0; i < 2; i++) {
-        for(int j = 0; j < 2; j++) {
-            result->data[i][j] = 0;
-            for(int k = 0; k < 2; k++) {
-                result->data[i][j] += a->data[i][k] * b->data[k][j];
-            }
-        }
-    }
-}
-
-void matrix_add_2x2(Matrix2x2 *result, Matrix2x2 *a, Matrix2x2 *b) {
-    for(int i = 0; i < 2; i++) {
-        for(int j = 0; j < 2; j++) {
-            result->data[i][j] = a->data[i][j] + b->data[i][j];
-        }
-    }
-}
-
-float matrix_determinant_2x2(Matrix2x2 *m) {
-    return m->data[0][0] * m->data[1][1] - m->data[0][1] * m->data[1][0];
-}
-
-void matrix_invert_2x2(Matrix2x2 *result, Matrix2x2 *m) {
-    float det = matrix_determinant_2x2(m);
-    if(fabs(det) > 1e-10) {
-        result->data[0][0] = m->data[1][1] / det;
-        result->data[0][1] = -m->data[0][1] / det;
-        result->data[1][0] = -m->data[1][0] / det;
-        result->data[1][1] = m->data[0][0] / det;
-    }
-}
-
-void kalman_2d(void){
-    // Prediction step
-    Vector2 temp_s;
-    temp_s.data[0] = F.data[0][0] * S.data[0] + F.data[0][1] * S.data[1] + G.data[0] * AccZInertial;
-    temp_s.data[1] = F.data[1][0] * S.data[0] + F.data[1][1] * S.data[1] + G.data[1] * AccZInertial;
-    S = temp_s;
-    
-    Matrix2x2 F_transpose = {{ {F.data[0][0], F.data[1][0]}, {F.data[0][1], F.data[1][1]} }};
-    Matrix2x2 temp_P, temp_P2;
-    matrix_multiply_2x2(&temp_P, &F, &P);
-    matrix_multiply_2x2(&temp_P2, &temp_P, &F_transpose);
-    matrix_add_2x2(&P, &temp_P2, &Q);
-    
-    // Update step
-    float innovation = AltitudeToF - (H[0] * S.data[0] + H[1] * S.data[1]);
-    float innovation_covariance = H[0] * P.data[0][0] * H[0] + H[0] * P.data[0][1] * H[1] + 
-                                 H[1] * P.data[1][0] * H[0] + H[1] * P.data[1][1] * H[1] + R;
-    
-    if(fabs(innovation_covariance) > 1e-10) {
-        float K0 = (P.data[0][0] * H[0] + P.data[0][1] * H[1]) / innovation_covariance;
-        float K1 = (P.data[1][0] * H[0] + P.data[1][1] * H[1]) / innovation_covariance;
-        
-        S.data[0] += K0 * innovation;
-        S.data[1] += K1 * innovation;
-        
-        // Update covariance
-        Matrix2x2 temp_I = I_mat;
-        temp_I.data[0][0] -= K0 * H[0];
-        temp_I.data[0][1] -= K0 * H[1];
-        temp_I.data[1][0] -= K1 * H[0];
-        temp_I.data[1][1] -= K1 * H[1];
-        
-        Matrix2x2 new_P;
-        matrix_multiply_2x2(&new_P, &temp_I, &P);
-        P = new_P;
-    }
-    
-    AltitudeKalman = S.data[0];
-    VelocityVerticalKalman = S.data[1];
-}
-
+// Modified ToF sensor reading function
 void tof_sensor_signals(void){
     // Read from VL53L8CX using your API
-
     vl53l8cx_check_data_ready(&Dev, &isReady);
     
     if(isReady) {
         // Get ranging data
         vl53l8cx_get_ranging_data(&Dev, &Results);
         
-        // Assuming you want a distance with valid status (5 & 9 means ranging OK)
+        // Find the best valid target (closest valid reading)
+        float best_distance = 0;
+        bool found_valid = false;
+        
         for (i = 0; i < VL53L8CX_NB_TARGET_PER_ZONE; i++) {
             if (Results.target_status[i] == 5 || Results.target_status[i] == 9) {
-                AltitudeToF = Results.distance_mm[i] / 10.0; // Convert mm to cm
+                float current_distance = Results.distance_mm[i] / 10.0; // Convert mm to cm
+                
+                // Use first valid reading or closer reading if multiple valid targets
+                if (!found_valid || current_distance < best_distance) {
+                    best_distance = current_distance;
+                    found_valid = true;
+                }
+            }
+        }
+        
+        if (found_valid) {
+            // Additional filtering: only accept readings that are reasonably close to previous reading
+            // This helps reject outliers from the ToF sensor
+            if (first_tof_reading || fabs(best_distance - PrevAltitudeToF) < 50.0f) { // 50cm max change filter
+                AltitudeToF = best_distance;
                 tof_data_ready = true;
                 last_tof_reading = time_us_32();
-                break; // Use the first valid target
             }
         }
     }
+}
+
+// Calculate velocity from ToF distance measurements
+void calculate_velocity_from_tof() {
+    uint64_t current_time = time_us_64();
+    
+    if (!first_tof_reading && tof_data_ready) {
+        // Calculate time difference in seconds
+        float dt = (current_time - PrevToFTime) / 1000000.0f;
+        
+        // Only calculate if we have a reasonable time difference (avoid division by very small numbers)
+        if (dt > 0.001f && dt < 0.1f) { // Between 1ms and 100ms
+            // Calculate raw velocity (negative because decreasing distance = positive velocity upward)
+            float raw_velocity = -(AltitudeToF - PrevAltitudeToF) / dt;
+            
+            // Apply low-pass filter to smooth the velocity
+            VelocityVerticalFiltered = velocity_alpha * raw_velocity + (1.0f - velocity_alpha) * VelocityVerticalFiltered;
+            
+            // Optional: Apply moving average for additional smoothing
+            velocity_buffer[velocity_buffer_index] = VelocityVerticalFiltered;
+            velocity_buffer_index = (velocity_buffer_index + 1) % VELOCITY_FILTER_SIZE;
+            if (velocity_buffer_index == 0) velocity_buffer_full = true;
+            
+            // Calculate moving average
+            float sum = 0;
+            int count = velocity_buffer_full ? VELOCITY_FILTER_SIZE : velocity_buffer_index + 1;
+            for (int i = 0; i < count; i++) {
+                sum += velocity_buffer[i];
+            }
+            VelocityVerticalKalman = sum / count;
+            
+            // Limit velocity to reasonable range (safety check)
+            if (VelocityVerticalKalman > 200.0f) VelocityVerticalKalman = 200.0f;
+            if (VelocityVerticalKalman < -200.0f) VelocityVerticalKalman = -200.0f;
+        }
+        
+        // Update altitude directly from ToF sensor
+        AltitudeKalman = AltitudeToF;
+    } else if (first_tof_reading && tof_data_ready) {
+        // Initialize on first reading
+        AltitudeKalman = AltitudeToF;
+        VelocityVerticalKalman = 0;
+        VelocityVerticalFiltered = 0;
+        first_tof_reading = false;
+    }
+    
+    // Update previous values for next calculation
+    if (tof_data_ready) {
+        PrevAltitudeToF = AltitudeToF;
+        PrevToFTime = current_time;
+        tof_data_ready = false; // Reset flag
+    }
+}
+
+// Replace your existing kalman_2d() call with this in main_loop():
+void altitude_control() {
+    // Read ToF sensor
+    tof_sensor_signals();
+    
+    // Calculate velocity from ToF readings
+    calculate_velocity_from_tof();
+    
+    // Rest of your altitude control remains the same
+    DesiredVelocityVertical = 0.01 * (ReceiverValue[2] - 500);
+    ErrorVelocityVertical = DesiredVelocityVertical - VelocityVerticalKalman;
+    
+    pid_equation(ErrorVelocityVertical, PVelocityVertical, IVelocityVertical, DVelocityVertical, 
+                PrevErrorVelocityVertical, PrevItermVelocityVertical);
+    InputThrottle = 500 + PIDReturn[0]; 
+    PrevErrorVelocityVertical = PIDReturn[1]; 
+    PrevItermVelocityVertical = PIDReturn[2];
+}
+
+// Modified setup section - remove Kalman 2D initialization and add this:
+void setup_altitude_control() {
+    // Initialize ToF-based altitude control
+    first_tof_reading = true;
+    PrevAltitudeToF = 0;
+    PrevToFTime = 0;
+    AltitudeKalman = 0;
+    VelocityVerticalKalman = 0;
+    VelocityVerticalFiltered = 0;
+    
+    // Clear velocity filter buffer
+    for (int i = 0; i < VELOCITY_FILTER_SIZE; i++) {
+        velocity_buffer[i] = 0;
+    }
+    velocity_buffer_index = 0;
+    velocity_buffer_full = false;
+    
+    // Initialize altitude PID
+    PrevErrorVelocityVertical = 0;
+    PrevItermVelocityVertical = 0;
 }
 
 void bmi_signals(){
@@ -488,11 +530,6 @@ void bmi_signals(){
 
     AngleRoll  =  atan2(AccY, sqrt(AccX * AccX + AccZ * AccZ)) * RadtoDeg; //to degrees
     AnglePitch = -atan2(AccX, sqrt(AccY * AccY + AccZ * AccZ)) * RadtoDeg; //to degrees
-
-    AccZInertial = -sin(AnglePitch * M_PI/180) * AccX + 
-                    cos(AnglePitch * M_PI/180) * sin(AngleRoll * M_PI/180) * AccY + 
-                    cos(AnglePitch * M_PI/180) * cos(AngleRoll * M_PI/180) * AccZ;   
-    AccZInertial = (AccZInertial + 1) * 981.0 - AccZCalibration;; // Convert to cm/s²
 }
 
 ///////////////////////////////////////////////////////////////SETUP/////////////////////////////////////////////////////////////////////////////
@@ -555,14 +592,8 @@ void setup(){
 
     vl53l8cx_start_ranging(&Dev);
 
-    // Initialize Kalman filter matrices
-    F = (Matrix2x2){{{1, 0.004}, {0, 1}}};
-    G = (Vector2){{0.5*0.004*0.004, 0.004}};
-    I_mat = (Matrix2x2){{{1, 0}, {0, 1}}};
-    Q = (Matrix2x2){{{G.data[0]*G.data[0]*100, G.data[0]*G.data[1]*100}, 
-                     {G.data[1]*G.data[0]*100, G.data[1]*G.data[1]*100}}};
-    P = (Matrix2x2){{{0, 0}, {0, 0}}};
-    S = (Vector2){{0, 0}};
+    // Initialize altitude control
+    setup_altitude_control();
 
     // Initialize motors
     setup_motors();
@@ -574,14 +605,11 @@ void setup(){
         RateCalibrationRoll+=  -bmi088.getGyroX_degs();
         RateCalibrationPitch+= +bmi088.getGyroY_degs();
         RateCalibrationYaw+=   +bmi088.getGyroZ_degs();
-        AccZCalibration += AccZInertial;
         sleep_ms(1);
     }
     RateCalibrationRoll  /= RateCalibrationNumber;
     RateCalibrationPitch /= RateCalibrationNumber;
     RateCalibrationYaw   /= RateCalibrationNumber;
-    AccZCalibration      /= RateCalibrationNumber;
-    AltitudeToFStartUp   = 31;
     printf("Calibration complete\n");
 
     gpio_put(LED_GREEN_L, 0);
@@ -644,11 +672,9 @@ void main_loop() {
     KalmanUncertaintyAnglePitch=Kalman1DOutput[1];
 
     tof_sensor_signals();
-    //AltitudeToF -= AltitudeToFStartUp; // Adjust ToF reading to start from 0
 
-    kalman_2d(); // Run Kalman filter for altitude and velocity
+    altitude_control();
 
-    // Read receiver values
     read_receiver();
 
     //Calculate desired angles from receiver inputs
@@ -661,13 +687,13 @@ void main_loop() {
 
     // Altitude/Velocity control
     ErrorVelocityVertical = DesiredVelocityVertical - VelocityVerticalKalman;
-    pid_equation(ErrorVelocityVertical, PVelocityVertical, IVelocityVertical, DVelocityVertical, 
-                PrevErrorVelocityVertical, PrevItermVelocityVertical);
+
+    pid_equation(ErrorVelocityVertical, PVelocityVertical, IVelocityVertical, DVelocityVertical, PrevErrorVelocityVertical, PrevItermVelocityVertical);
     InputThrottle = 500 + PIDReturn[0]; 
     PrevErrorVelocityVertical = PIDReturn[1]; 
     PrevItermVelocityVertical = PIDReturn[2];
 
-    // Calculate difference between desired and actual angles
+    // Angle control
     ErrorAngleRoll = DesiredAngleRoll - KalmanAngleRoll;
     ErrorAnglePitch = DesiredAnglePitch - KalmanAnglePitch;
 
@@ -681,7 +707,7 @@ void main_loop() {
     PrevErrorAnglePitch = PIDReturn[1];
     PrevItermAnglePitch = PIDReturn[2];
 
-    //Calculate the difference between the desired and the actual roll, pitch and yaw rotation rates. Use these for the PID controller of the inner loop
+    //Rate control
     ErrorRateRoll=DesiredRateRoll-RateRoll;
     ErrorRatePitch=DesiredRatePitch-RatePitch;
     ErrorRateYaw=DesiredRateYaw-RateYaw;
@@ -733,14 +759,6 @@ void main_loop() {
         KalmanAnglePitch = AnglePitch;
         KalmanUncertaintyAngleRoll = 2*2;
         KalmanUncertaintyAnglePitch = 2*2;
-
-        // Reset altitude Kalman filter
-        S = (Vector2){{AltitudeToF, 0}};  // Reset to current ToF reading
-        P = (Matrix2x2){{{100, 0}, {0, 100}}}; // Reset covariance
-    
-        // Reset altitude PID
-        PrevErrorVelocityVertical = 0;
-        PrevItermVelocityVertical = 0;
     }
 
     //send commands to motors
