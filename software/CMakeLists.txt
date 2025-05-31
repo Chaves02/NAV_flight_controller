@@ -119,8 +119,8 @@ target_link_libraries(nav_flight_controller
 )
 
 ################################################################
-# flight
-#################################################################
+# Angle_mode
+################################################################
 
 add_executable(angle_mode
         src/angle_mode.cpp)
@@ -132,6 +132,33 @@ pico_add_extra_outputs(angle_mode)
 
 # Link libraries - add the specific driver and interface libraries you need
 target_link_libraries(angle_mode
+        pico_stdlib
+        pico_time
+        pico_multicore
+        rp_agrolib_motors
+        rp_agrolib_bmi088
+        rp_agrolib_uart
+        hardware_gpio
+        hardware_pwm
+        hardware_timer
+        hardware_adc
+        rp_agrolib_i2c
+)
+
+################################################################
+# Altitude_mode
+################################################################
+
+add_executable(altitude_mode
+        src/altitude_mode.cpp)
+
+pico_enable_stdio_usb(altitude_mode 1)
+pico_enable_stdio_uart(altitude_mode 0)
+
+pico_add_extra_outputs(altitude_mode)
+
+# Link libraries - add the specific driver and interface libraries you need
+target_link_libraries(altitude_mode
         pico_stdlib
         pico_time
         pico_multicore
