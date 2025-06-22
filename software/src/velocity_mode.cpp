@@ -257,6 +257,7 @@ float AccX, AccY, AccZ;
 float AngleRoll, AnglePitch;
 float RateCalibrationPitch=0, RateCalibrationRoll=0, RateCalibrationYaw=0;
 float AcclCalibrationX=0, AcclCalibrationY=0, AcclCalibrationZ=0;
+float AccZBias=0; // Bias for Z acceleration, used in altitude hold
 int RateCalibrationNumber=0;
 float RadtoDeg=180/M_PI;
 
@@ -378,7 +379,7 @@ void init_lidar() {
     printf("VL53L8CX initialized successfully\n");
 }
 
-float AltitudeLidar, AltitudeLidarStartUp;
+float AltitudeLidar, AltitudeLidarStartUp=0;
 float AccZInertial;
 float AltitudeKalman, VelocityVerticalKalman;
 
@@ -415,7 +416,7 @@ float I[2][2] = {{1.0f, 0.0f},
 
 // Measurement noise covariance R - 1x1 (scalar)
 // R = 30*30 = 900
-float R = 30.0f * 30.0f;
+float R = 1.0f * 1.0f; // Measurement noise covariance (altitude)
 
 // Temporary matrices for calculations
 float temp_2x2[2][2];
@@ -426,9 +427,9 @@ float S_pred; // Innovation covariance (scalar)
 
 // PID velocity controller variables
 float DesiredVelocityVertical, ErrorVelocityVertical;
-float PVelocityVertical = 3.5f;
-float IVelocityVertical = 0.0015f;
-float DVelocityVertical = 0.01f;
+float PVelocityVertical = 5;
+float IVelocityVertical = 0.5;//0.0015f;
+float DVelocityVertical = 0;//0.01f;
 float PrevErrorVelocityVertical, PrevItermVelocityVertical;
 
 // Matrix operations
@@ -553,7 +554,7 @@ void lidar_signals(void) {
             if(status == 0) {
                 if(Results.target_status[5] == 5 || Results.target_status[5] == 9) {
                     // Use the 6th measurement (index 5) as the center altitude
-                    AltitudeLidar = Results.distance_mm[5] / 10; // Convert mm to cm
+                    AltitudeLidar = (Results.distance_mm[5]-AltitudeLidarStartUp) / 10; // Convert mm to cm
                     newAlt = true;
                 }
             }
@@ -574,7 +575,7 @@ void init_altitude_kalman() {
     
     // Calculate process noise covariance Q = G * G^T * σ²
     // Assuming process noise standard deviation of 30 cm/s² for acceleration
-    float process_noise_std = 30.0f; // cm/s²
+    float process_noise_std = 1000.0f; // cm/s²
     float process_noise_var = process_noise_std * process_noise_std;
     
     Q[0][0] = G[0] * G[0] * process_noise_var; // (0.000008)² * 30²
@@ -625,20 +626,40 @@ void setup(){
     setup_motors();
     motor_test();
 
-    printf("Starting gyro calibration...\n");
+    printf("Starting calibration...\n");
+    float accz_sum = 0.0f;
     for(RateCalibrationNumber=0; RateCalibrationNumber<2000; RateCalibrationNumber++){
         bmi088.readSensor();
         RateCalibrationRoll+=  -bmi088.getGyroX_degs();
         RateCalibrationPitch+= +bmi088.getGyroY_degs();
         RateCalibrationYaw+=   +bmi088.getGyroZ_degs();
-        lidar_signals();
-        AltitudeLidarStartUp += AltitudeLidar; // Accumulate altitude for calibration
+        AccX += -bmi088.getAccelX_G();
+        AccY += +bmi088.getAccelY_G();
+        AccZ += +bmi088.getAccelZ_G();
+        // Calculate inertial Z acceleration
+        float accz_inertial = -sin(AnglePitch * M_PI / 180.0f) * AccX + 
+                             cos(AnglePitch * M_PI / 180.0f) * sin(AngleRoll * M_PI / 180.0f) * AccY +
+                             cos(AngleRoll * M_PI / 180.0f) * cos(AnglePitch * M_PI / 180.0f) * AccZ;
+        
+        accz_sum += accz_inertial;
         sleep_ms(1);
     }
     RateCalibrationRoll=RateCalibrationRoll/RateCalibrationNumber;
     RateCalibrationPitch=RateCalibrationPitch/RateCalibrationNumber;
     RateCalibrationYaw=RateCalibrationYaw/RateCalibrationNumber;
-    AltitudeLidarStartUp = (AltitudeLidarStartUp/RateCalibrationNumber) / 10; // Average altitude in cm
+    AccZBias = accz_sum / RateCalibrationNumber + 1; // Average inertial Z acceleration in G(remove 1G)
+
+    bool got_first_lidar = false;
+    while (!got_first_lidar) {
+        lidar_signals();
+        if (newAlt) {
+            AltitudeLidarStartUp = Results.distance_mm[5]; // Store raw reading as offset
+            got_first_lidar = true;
+            printf("LIDAR offset set to: %.1f mm\n", AltitudeLidarStartUp);
+        }
+        sleep_ms(5);
+    }
+
     printf("Calibration complete\n");
 
     gpio_put(LED_GREEN_L, 0);
@@ -707,14 +728,12 @@ void loop() {
 
     AccZInertial = (AccZInertial+1) * 9.81 * 100; // Convert to cm/s^2
 
-    kalman_2d(); // Run the 2D Kalman filter for altitude and velocity
-
-    lidar_signals();
-
     if(newAlt) {
-        AltitudeLidar -= AltitudeLidarStartUp; // Adjust LIDAR altitude based on startup calibration
+        kalman_2d(); // Run the 2D Kalman filter for altitude and velocity
         newAlt = false; // Reset flag after processing
     }
+
+    lidar_signals();
 
     // Read receiver values
     read_receiver();
@@ -724,7 +743,7 @@ void loop() {
     DesiredAnglePitch = 0.04 * (ReceiverValue[1] - 1500);
     DesiredRateYaw    = 0.1  * (ReceiverValue[3] - 1500); //limit to 50 degrees/s
 
-    DesiredVelocityVertical = 0.1 * (ReceiverValue[2] - 1500); //limit to 50 cm/s
+    DesiredVelocityVertical = 0.2 * (ReceiverValue[2] - 1000); //limit to 100 cm/s
     ErrorVelocityVertical = DesiredVelocityVertical - VelocityVerticalKalman;
 
     pid_equation(ErrorVelocityVertical, PVelocityVertical, IVelocityVertical, DVelocityVertical, PrevErrorVelocityVertical, PrevItermVelocityVertical);
