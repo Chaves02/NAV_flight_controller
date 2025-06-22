@@ -174,6 +174,34 @@ target_link_libraries(altitude_mode
 )
 
 ################################################################
+# Altitude_mode
+################################################################
+
+add_executable(velocity_mode
+        src/velocity_mode.cpp)
+
+pico_enable_stdio_usb(velocity_mode 1)
+pico_enable_stdio_uart(velocity_mode 0)
+
+pico_add_extra_outputs(velocity_mode)
+
+# Link libraries - add the specific driver and interface libraries you need
+target_link_libraries(velocity_mode
+        pico_stdlib
+        pico_time
+        pico_multicore
+        rp_agrolib_motors
+        rp_agrolib_vl53l8cx
+        rp_agrolib_bmi088
+        rp_agrolib_uart
+        hardware_gpio
+        hardware_pwm
+        hardware_timer
+        hardware_adc
+        rp_agrolib_i2c
+)
+
+################################################################
 # docking
 #################################################################
 
@@ -201,6 +229,8 @@ target_link_libraries(docking
         hardware_timer
         hardware_adc
         hardware_spi
+        hardware_pio
+        hardware_dma
 )
 
 ############################################################
