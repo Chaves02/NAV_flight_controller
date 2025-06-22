@@ -262,6 +262,7 @@ int RateCalibrationNumber=0;
 float RadtoDeg=180/M_PI;
 
 uint32_t LoopTimer; //lengh of each control loop
+float dt_kalman; // Time step for Kalman filter, used to predict velocity
 
 // Define predicted angles and uncertainties
 float KalmanAngleRoll=0, KalmanUncertaintyAngleRoll=2*2;
@@ -309,12 +310,12 @@ float DRateRoll=0.05 ; float DRatePitch=DRateRoll; float DRateYaw=0.01; //0Dyaw
 float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
 
 /*   PID Equation   */
-void pid_equation(float Error, float P , float I, float D, float PrevError, float PrevIterm) {
+void pid_equation(float Error, float P , float I, float D, float PrevError, float PrevIterm, float dt) {
   float Pterm=P*Error;
-  float Iterm=PrevIterm+I*(Error+PrevError)*0.004/2;  //0.004 is the time step -> 250Hz
+  float Iterm=PrevIterm+I*(Error+PrevError)*dt/2;  //dt is the time step -> 250Hz
   if (Iterm > 200) Iterm=200;
   else if (Iterm <-200) Iterm=-200;
-  float Dterm=D*(Error-PrevError)/0.004;
+  float Dterm=D*(Error-PrevError)/dt;
   float PIDOutput= Pterm+Iterm+Dterm;
   if (PIDOutput>200) PIDOutput=200;
   else if (PIDOutput <-200) PIDOutput=-200;
@@ -388,15 +389,15 @@ float AltitudeKalman, VelocityVerticalKalman;
 float S[2] = {0.0f, 0.0f};
 
 // State transition matrix F - 2x2
-// F = [1, 0.004]
+// F = [1, dt_kalman]
 //     [0,     1]
-float F[2][2] = {{1.0f, 0.004f}, 
+float F[2][2] = {{1.0f, dt_kalman}, 
                  {0.0f, 1.0f}};
 
 // Control input matrix G - 2x1
-// G = [0.5*0.004*0.004] = [0.000008]
-//     [0.004         ]   [0.004   ]
-float G[2] = {0.5f * 0.004f * 0.004f, 0.004f};
+// G = [0.5*dt_kalman*dt_kalman] = [0.000008]
+//     [dt_kalman         ]   [dt_kalman   ]
+float G[2] = {0.5f * dt_kalman * dt_kalman, dt_kalman};
 
 // Process covariance matrix P - 2x2
 float P[2][2] = {{0.0f, 0.0f}, 
@@ -415,7 +416,7 @@ float I[2][2] = {{1.0f, 0.0f},
                  {0.0f, 1.0f}};
 
 // Measurement noise covariance R - 1x1 (scalar)
-// R = 30*30 = 900
+// R = 1 * 1 = 1.0
 float R = 1.0f * 1.0f; // Measurement noise covariance (altitude)
 
 // Temporary matrices for calculations
@@ -427,8 +428,8 @@ float S_pred; // Innovation covariance (scalar)
 
 // PID velocity controller variables
 float DesiredVelocityVertical, ErrorVelocityVertical;
-float PVelocityVertical = 5;
-float IVelocityVertical = 0.5;//0.0015f;
+float PVelocityVertical = 10;
+float IVelocityVertical = 0.0015f;
 float DVelocityVertical = 0;//0.01f;
 float PrevErrorVelocityVertical, PrevItermVelocityVertical;
 
@@ -468,6 +469,22 @@ void matrix_subtract_2x2(float A[2][2], float B[2][2], float result[2][2]) {
 }
 
 void kalman_2d(void) {
+
+    // Update time-dependent matrices
+    F[0][1] = dt_kalman;  // Update state transition matrix
+    
+    // Update control input matrix
+    G[0] = 0.5f * dt_kalman * dt_kalman;
+    G[1] = dt_kalman;
+    
+    // Update process noise covariance matrix
+    float process_noise_std = 1000.0f; // Standard deviation of accl noise
+    float process_noise_var = process_noise_std * process_noise_std;
+    Q[0][0] = G[0] * G[0] * process_noise_var;
+    Q[0][1] = G[0] * G[1] * process_noise_var;
+    Q[1][0] = G[1] * G[0] * process_noise_var;
+    Q[1][1] = G[1] * G[1] * process_noise_var;
+
     // Prediction step
     // S = F * S + G * AccZInertial
     matrix_multiply_2x1(F, S, temp_2x1);
@@ -579,9 +596,9 @@ void init_altitude_kalman() {
     float process_noise_var = process_noise_std * process_noise_std;
     
     Q[0][0] = G[0] * G[0] * process_noise_var; // (0.000008)² * 30²
-    Q[0][1] = G[0] * G[1] * process_noise_var; // 0.000008 * 0.004 * 30²
-    Q[1][0] = G[1] * G[0] * process_noise_var; // 0.004 * 0.000008 * 30²
-    Q[1][1] = G[1] * G[1] * process_noise_var; // (0.004)² * 30²
+    Q[0][1] = G[0] * G[1] * process_noise_var; // 0.000008 * dt_kalman * 30²
+    Q[1][0] = G[1] * G[0] * process_noise_var; // dt_kalman * 0.000008 * 30²
+    Q[1][1] = G[1] * G[1] * process_noise_var; // (dt_kalman)² * 30²
     
     printf("Kalman filter initialized\n");
     printf("Q matrix: [%.6f, %.6f; %.6f, %.6f]\n", Q[0][0], Q[0][1], Q[1][0], Q[1][1]);
@@ -657,6 +674,7 @@ void setup(){
             got_first_lidar = true;
             printf("LIDAR offset set to: %.1f mm\n", AltitudeLidarStartUp);
         }
+        newAlt = false; // Reset flag
         sleep_ms(5);
     }
 
@@ -727,13 +745,16 @@ void loop() {
                    cos(AngleRoll * M_PI / 180.0f) * cos(AnglePitch * M_PI / 180.0f) * AccZ;
 
     AccZInertial = (AccZInertial+1) * 9.81 * 100; // Convert to cm/s^2
+    
+    lidar_signals();
 
     if(newAlt) {
+        static uint32_t last_kalman_time = 0;
+        uint32_t now = time_us_32();
+        dt_kalman = (now - last_kalman_time) / 1e6f; // Convert to seconds
+        last_kalman_time = now;
         kalman_2d(); // Run the 2D Kalman filter for altitude and velocity
-        newAlt = false; // Reset flag after processing
     }
-
-    lidar_signals();
 
     // Read receiver values
     read_receiver();
@@ -743,25 +764,28 @@ void loop() {
     DesiredAnglePitch = 0.04 * (ReceiverValue[1] - 1500);
     DesiredRateYaw    = 0.1  * (ReceiverValue[3] - 1500); //limit to 50 degrees/s
 
-    DesiredVelocityVertical = 0.2 * (ReceiverValue[2] - 1000); //limit to 100 cm/s
-    ErrorVelocityVertical = DesiredVelocityVertical - VelocityVerticalKalman;
+    DesiredVelocityVertical = 0.5 * (ReceiverValue[2] - 1000); //limit to 250 cm/s
 
-    pid_equation(ErrorVelocityVertical, PVelocityVertical, IVelocityVertical, DVelocityVertical, PrevErrorVelocityVertical, PrevItermVelocityVertical);
-
-    InputThrottle = 500 + PIDReturn[0]; // Base throttle at 500us, adjust with PID output
-    PrevErrorVelocityVertical = PIDReturn[1];
-    PrevItermVelocityVertical = PIDReturn[2];
+    if(newAlt) {
+        // Calculate the error in vertical velocity
+        ErrorVelocityVertical = DesiredVelocityVertical - VelocityVerticalKalman;
+        pid_equation(ErrorVelocityVertical, PVelocityVertical, IVelocityVertical, DVelocityVertical, PrevErrorVelocityVertical, PrevItermVelocityVertical, dt_kalman);
+        InputThrottle = 500 + PIDReturn[0]; // Base throttle at 500us, adjust with PID output
+        PrevErrorVelocityVertical = PIDReturn[1];
+        PrevItermVelocityVertical = PIDReturn[2];
+        newAlt = false; // Reset flag after processing
+    }
 
     // Calculate difference between desired and actual angles
     ErrorAngleRoll = DesiredAngleRoll - KalmanAngleRoll;
     ErrorAnglePitch = DesiredAnglePitch - KalmanAnglePitch;
 
-    pid_equation(ErrorAngleRoll, PAngleRoll, IAngleRoll, DAngleRoll, PrevErrorAngleRoll, PrevItermAngleRoll);
+    pid_equation(ErrorAngleRoll, PAngleRoll, IAngleRoll, DAngleRoll, PrevErrorAngleRoll, PrevItermAngleRoll, 0.004);
     DesiredRateRoll = PIDReturn[0];
     PrevErrorAngleRoll = PIDReturn[1];
     PrevItermAngleRoll = PIDReturn[2];
 
-    pid_equation(ErrorAnglePitch, PAnglePitch, IAnglePitch, DAnglePitch, PrevErrorAnglePitch, PrevItermAnglePitch);
+    pid_equation(ErrorAnglePitch, PAnglePitch, IAnglePitch, DAnglePitch, PrevErrorAnglePitch, PrevItermAnglePitch, 0.004);
     DesiredRatePitch = PIDReturn[0];
     PrevErrorAnglePitch = PIDReturn[1];
     PrevItermAnglePitch = PIDReturn[2];
@@ -771,15 +795,15 @@ void loop() {
     ErrorRatePitch=DesiredRatePitch-RatePitch;
     ErrorRateYaw=DesiredRateYaw-RateYaw;
 
-    pid_equation(ErrorRateRoll, PRateRoll, IRateRoll, DRateRoll, PrevErrorRateRoll, PrevItermRateRoll);
+    pid_equation(ErrorRateRoll, PRateRoll, IRateRoll, DRateRoll, PrevErrorRateRoll, PrevItermRateRoll, 0.004);
        InputRoll=PIDReturn[0];
        PrevErrorRateRoll=PIDReturn[1]; 
        PrevItermRateRoll=PIDReturn[2];
-    pid_equation(ErrorRatePitch, PRatePitch, IRatePitch, DRatePitch, PrevErrorRatePitch, PrevItermRatePitch);
+    pid_equation(ErrorRatePitch, PRatePitch, IRatePitch, DRatePitch, PrevErrorRatePitch, PrevItermRatePitch, 0.004);
        InputPitch=PIDReturn[0]; 
        PrevErrorRatePitch=PIDReturn[1]; 
        PrevItermRatePitch=PIDReturn[2];
-    pid_equation(ErrorRateYaw, PRateYaw, IRateYaw, DRateYaw, PrevErrorRateYaw, PrevItermRateYaw);
+    pid_equation(ErrorRateYaw, PRateYaw, IRateYaw, DRateYaw, PrevErrorRateYaw, PrevItermRateYaw, 0.004);
        InputYaw=PIDReturn[0]; 
        PrevErrorRateYaw=PIDReturn[1]; 
        PrevItermRateYaw=PIDReturn[2];
@@ -840,6 +864,7 @@ void loop() {
                AccZInertial, AltitudeLidar, AltitudeKalman, VelocityVerticalKalman);
         printf("Kalman State: Alt=%.1f, Vel=%.1f | Innovation=%.1f\n", 
                S[0], S[1], innovation);
+        printf("dt_kalman: %.6f \n", dt_kalman);
         debug_counter = 0;
     }
     
