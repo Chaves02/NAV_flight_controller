@@ -45,7 +45,7 @@ typedef struct {
     uint64_t last_update;
 } rc_data_t;
 
-static volatile rc_data_t rc_data = {1500.0f, 1500.0f, 0.0f, 1500.0f, false, 0};
+static volatile rc_data_t rc_data = {1500.0f, 1500.0f, 1500.0f, 1500.0f, false, 0};
 
 // Improved parsing function with better error handling
 bool parse_rc_command(const char* cmd) {
@@ -230,7 +230,7 @@ void read_receiver(void) {
         // Use safe default values if no valid data
         ReceiverValue[0] = 1500.0f; // Roll center
         ReceiverValue[1] = 1500.0f; // Pitch center
-        ReceiverValue[2] = 0.0f;    // Throttle off
+        ReceiverValue[2] = 1000.0f;    // Throttle off
         ReceiverValue[3] = 1500.0f; // Yaw center
     }
 }
@@ -305,7 +305,7 @@ float PrevErrorRateRoll, PrevErrorRatePitch, PrevErrorRateYaw;
 float PrevItermRateRoll, PrevItermRatePitch, PrevItermRateYaw;
 float PIDReturn[]={0, 0, 0};
 float PRateRoll=1 ; float PRatePitch=PRateRoll; float PRateYaw=45;  //0.6PRoll
-float IRateRoll=3.5 ; float IRatePitch=IRateRoll; float IRateYaw=10;
+float IRateRoll=3 ; float IRatePitch=IRateRoll; float IRateYaw=10;
 float DRateRoll=0.05 ; float DRatePitch=DRateRoll; float DRateYaw=0.01; //0Dyaw
 float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
 
@@ -359,7 +359,7 @@ void init_lidar() {
         return;
     }
 
-    status = vl53l8cx_set_ranging_mode(&Dev, VL53L8CX_RANGING_MODE_CONTINUOUS);
+    status = vl53l8cx_set_ranging_mode(&Dev, VL53L8CX_RANGING_MODE_AUTONOMOUS);
     if(status) {
         printf("VL53L8CX set ranging mode failed: %d\n", status);
         return;
@@ -429,8 +429,8 @@ float S_pred; // Innovation covariance (scalar)
 // PID velocity controller variables
 float DesiredVelocityVertical, ErrorVelocityVertical;
 float PVelocityVertical = 10;
-float IVelocityVertical = 0.0015f;
-float DVelocityVertical = 0;//0.01f;
+float IVelocityVertical = 0.001f;
+float DVelocityVertical = 0.01;
 float PrevErrorVelocityVertical, PrevItermVelocityVertical;
 
 // Matrix operations
@@ -604,6 +604,8 @@ void init_altitude_kalman() {
     printf("Q matrix: [%.6f, %.6f; %.6f, %.6f]\n", Q[0][0], Q[0][1], Q[1][0], Q[1][1]);
 }
 
+bool armed = false; // Flag to indicate if motors are armed
+
 void setup(){
 
     stdio_init_all();
@@ -707,22 +709,18 @@ void setup(){
     rc_data.pitch = 1500.0f;
     rc_data.throttle = 1500.0f; // Start with throttle at 1500 (idle)
     rc_data.yaw = 1500.0f;
-    rc_data.data_valid = false;
+    rc_data.data_valid = true;
     rc_data.last_update = 0;
     critical_section_exit(&rc_data_cs);
 
     // Wait for valid throttle range before arming
-    while (ReceiverValue[2] < 10 || ReceiverValue[2] > 100) {
+    while (ReceiverValue[2] > 1200 || ReceiverValue[2] <= 1000) {
       read_receiver();
       printf("Throttle %f\n", ReceiverValue[2]);
       sleep_ms(200);
     }
     printf("Armed\n");
-    set_motor_speed(MOTOR1_PIN, 50); // Set motors to idle speed
-    set_motor_speed(MOTOR2_PIN, 50);
-    set_motor_speed(MOTOR3_PIN, 50);
-    set_motor_speed(MOTOR4_PIN, 50);
-    sleep_ms(1000);
+    armed = true;
 
     //Last line of setup - time variable for control loop
     LoopTimer = time_us_32();
@@ -764,13 +762,13 @@ void loop() {
     DesiredAnglePitch = 0.04 * (ReceiverValue[1] - 1500);
     DesiredRateYaw    = 0.1  * (ReceiverValue[3] - 1500); //limit to 50 degrees/s
 
-    DesiredVelocityVertical = 0.5 * (ReceiverValue[2] - 1000); //limit to 250 cm/s
+    DesiredVelocityVertical = 0.1 * (ReceiverValue[2] - 1500); //limit to -60/60 cm/s worked descent
 
     if(newAlt) {
         // Calculate the error in vertical velocity
         ErrorVelocityVertical = DesiredVelocityVertical - VelocityVerticalKalman;
         pid_equation(ErrorVelocityVertical, PVelocityVertical, IVelocityVertical, DVelocityVertical, PrevErrorVelocityVertical, PrevItermVelocityVertical, dt_kalman);
-        InputThrottle = 500 + PIDReturn[0]; // Base throttle at 500us, adjust with PID output
+        InputThrottle = 520 + PIDReturn[0]; // Base throttle at 500us, adjust with PID output
         PrevErrorVelocityVertical = PIDReturn[1];
         PrevItermVelocityVertical = PIDReturn[2];
         newAlt = false; // Reset flag after processing
@@ -831,24 +829,56 @@ void loop() {
     
     //Make sure able to disarm motors
     int ThrottleCutOff=0;
-    if (ReceiverValue[2]<10) {
-        MotorInput1=ThrottleCutOff; 
-        MotorInput2=ThrottleCutOff;
-        MotorInput3=ThrottleCutOff; 
-        MotorInput4=ThrottleCutOff;
-        reset_pid();
+    static int counter_cutof = 0; // Counter for disarm condition
+    if (ReceiverValue[2] < 1050) { // If throttle is below 10%
+        counter_cutof++;
+    } else {
+        counter_cutof = 0; // Reset counter if throttle is above 10%
+    }
 
+    //arm/disarm logic
+    if (ReceiverValue[2] > 1500 && !armed) { // If throttle is above 100% and not armed
+        armed = true; // Set armed flag to true
+        reset_pid();
         KalmanAngleRoll = AngleRoll;
         KalmanAnglePitch = AnglePitch;
         KalmanUncertaintyAngleRoll = 2*2;
         KalmanUncertaintyAnglePitch = 2*2;
+        MotorInput1 = 50; // Set motors to idle speed
+        MotorInput2 = 50;
+        MotorInput3 = 50;
+        MotorInput4 = 50;
+        printf("Motors armed\n");
+        gpio_put(LED_RED_L, 1);
+        gpio_put(LED_RED_R, 1);
+        gpio_put(LED_GREEN_L, 0);
+        gpio_put(LED_GREEN_R, 0);
+    }
+
+    if (ReceiverValue[2]<1050 && counter_cutof > 250 & AltitudeKalman < 5) { // If throttle is below 10% and pitch is below 10% (disarm condition)
+        
+        armed = false; // Set armed flag to false
+        printf("Motors disarmed\n");
+        gpio_put(LED_RED_L, 0);
+        gpio_put(LED_RED_R, 0);
+        gpio_put(LED_GREEN_L, 1);
+        gpio_put(LED_GREEN_R, 1);
+        counter_cutof = 0; // Reset disarm counter
     }
 
     //send commands to motors
+    if (armed) {
     set_motor_speed(MOTOR1_PIN, MotorInput1);
     set_motor_speed(MOTOR2_PIN, MotorInput2);
     set_motor_speed(MOTOR3_PIN, MotorInput3);
     set_motor_speed(MOTOR4_PIN, MotorInput4);
+    }
+    else {
+    set_motor_speed(MOTOR1_PIN, ThrottleCutOff);
+    set_motor_speed(MOTOR2_PIN, ThrottleCutOff);
+    set_motor_speed(MOTOR3_PIN, ThrottleCutOff);
+    set_motor_speed(MOTOR4_PIN, ThrottleCutOff);
+    }
 
 
     // Debug output (reduce frequency to avoid spam)
