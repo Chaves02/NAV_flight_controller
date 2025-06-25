@@ -302,7 +302,7 @@ float PrevErrorRateRoll, PrevErrorRatePitch, PrevErrorRateYaw;
 float PrevItermRateRoll, PrevItermRatePitch, PrevItermRateYaw;
 float PIDReturn[]={0, 0, 0};
 float PRateRoll=1 ; float PRatePitch=PRateRoll; float PRateYaw=45;  //0.6PRoll
-float IRateRoll=3.5 ; float IRatePitch=IRateRoll; float IRateYaw=10;
+float IRateRoll=3 ; float IRatePitch=IRateRoll; float IRateYaw=10;
 float DRateRoll=0.05 ; float DRatePitch=DRateRoll; float DRateYaw=0.01; //0Dyaw
 float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
 
@@ -467,8 +467,8 @@ void loop() {
     read_receiver();
 
     //Calculate desired angles from receiver inputs
-    DesiredAngleRoll  = 0.04 * (ReceiverValue[0] - 1500); //limit to 20 degrees
-    DesiredAnglePitch = 0.04 * (ReceiverValue[1] - 1500);
+    DesiredAngleRoll  = 0.05 * (ReceiverValue[0] - 1500); //limit to 25 degrees
+    DesiredAnglePitch = 0.05 * (ReceiverValue[1] - 1500);
 
     InputThrottle = ReceiverValue[2];
     DesiredRateYaw = 0.1 * (ReceiverValue[3] - 1500); //limit to 50 degrees/s
@@ -550,16 +550,16 @@ void loop() {
 
     // Debug output (reduce frequency to avoid spam)
     static int debug_counter = 0;
-    if(debug_counter++ > 100) {
-        printf("                               Angles:   %.1f   %.1f\n", AngleRoll, AnglePitch);
-        printf("ACCL: X=%.1f, Y=%.1f, Z=%.1f | Kalman: R=%.1f P=%.1f | Rates: R=%.1f P=%.1f Y=%.1f \n", 
-               AccX, AccY, AccZ, KalmanAngleRoll, KalmanAnglePitch, RateRoll, RatePitch, RateYaw);
-        printf("Motors: %.1f  %.1f  %.1f  %.1f \n", MotorInput1, MotorInput2, MotorInput3, MotorInput4);
-        printf("Receiver: R=%.1f P=%.1f T=%.1f Y=%.1f\n", 
-               ReceiverValue[0], ReceiverValue[1], ReceiverValue[2], ReceiverValue[3]);
-        
-        debug_counter = 0;
-    }
+    //if(debug_counter++ > 100) {
+    //    printf("                               Angles:   %.1f   %.1f\n", AngleRoll, AnglePitch);
+    //    printf("ACCL: X=%.1f, Y=%.1f, Z=%.1f | Kalman: R=%.1f P=%.1f | Rates: R=%.1f P=%.1f Y=%.1f \n", 
+    //           AccX, AccY, AccZ, KalmanAngleRoll, KalmanAnglePitch, RateRoll, RatePitch, RateYaw);
+    //    printf("Motors: %.1f  %.1f  %.1f  %.1f \n", MotorInput1, MotorInput2, MotorInput3, MotorInput4);
+    //    printf("Receiver: R=%.1f P=%.1f T=%.1f Y=%.1f\n", 
+    //           ReceiverValue[0], ReceiverValue[1], ReceiverValue[2], ReceiverValue[3]);
+    //    
+    //    debug_counter = 0;
+    //}
     
     
     //printf("Roll_angle: %f, Pitch_angle: %f\n", KalmanAngleRoll, KalmanAnglePitch);
