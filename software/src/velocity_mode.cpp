@@ -279,7 +279,7 @@ float ErrorAngleRoll, ErrorAnglePitch;
 float PrevErrorAngleRoll, PrevErrorAnglePitch;
 float PrevItermAngleRoll, PrevItermAnglePitch;
 float PAngleRoll=2; float PAnglePitch=PAngleRoll; //0.6PRoll
-float IAngleRoll=0; float IAnglePitch=0;
+float IAngleRoll=0; float IAnglePitch=IAngleRoll;
 float DAngleRoll=0; float DAnglePitch=0;
 
 // Create the function that calculates the predicted angle and uncertainty using Kalman equations
@@ -428,9 +428,9 @@ float S_pred; // Innovation covariance (scalar)
 
 // PID velocity controller variables
 float DesiredVelocityVertical, ErrorVelocityVertical;
-float PVelocityVertical = 10;
-float IVelocityVertical = 0.001f;
-float DVelocityVertical = 0.01;
+float PVelocityVertical = 6.0f;
+float IVelocityVertical = 3.0f;
+float DVelocityVertical = 0.01f;
 float PrevErrorVelocityVertical, PrevItermVelocityVertical;
 
 // Matrix operations
@@ -768,7 +768,7 @@ void loop() {
         // Calculate the error in vertical velocity
         ErrorVelocityVertical = DesiredVelocityVertical - VelocityVerticalKalman;
         pid_equation(ErrorVelocityVertical, PVelocityVertical, IVelocityVertical, DVelocityVertical, PrevErrorVelocityVertical, PrevItermVelocityVertical, dt_kalman);
-        InputThrottle = 520 + PIDReturn[0]; // Base throttle at 500us, adjust with PID output
+        InputThrottle = 500 + PIDReturn[0]; // Base throttle at 500us, adjust with PID output
         PrevErrorVelocityVertical = PIDReturn[1];
         PrevItermVelocityVertical = PIDReturn[2];
         newAlt = false; // Reset flag after processing
