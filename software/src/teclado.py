@@ -1,6 +1,6 @@
 import serial
 import time
-import keyboard
+import keyboard # type: ignore
 
 # Connect to your RP2040 COM port
 ser = serial.Serial('/dev/ttyACM0', 115200, timeout=0.1)
