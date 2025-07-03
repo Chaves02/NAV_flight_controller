@@ -199,6 +199,7 @@ target_link_libraries(velocity_mode
         hardware_timer
         hardware_adc
         rp_agrolib_i2c
+        rp_agrolib_bc832
 )
 
 ################################################################
@@ -223,6 +224,39 @@ target_link_libraries(docking
 
         rp_agrolib_uart
         rp_agrolib_i2c
+
+        hardware_gpio
+        hardware_pwm
+        hardware_timer
+        hardware_adc
+        hardware_spi
+        hardware_pio
+        hardware_dma
+)
+
+################################################################
+# docking_spi
+#################################################################
+
+add_executable(docking_spi
+        src/docking_spi.cpp)
+
+pico_enable_stdio_usb(docking_spi 1)
+pico_enable_stdio_uart(docking_spi 0)
+
+pico_add_extra_outputs(docking_spi)
+
+# Link libraries - add the specific driver and interface libraries you need
+target_link_libraries(docking_spi
+
+        pico_stdlib
+        pico_stdio_usb
+        pico_time
+        pico_multicore
+
+        rp_agrolib_uart
+        rp_agrolib_i2c
+        rp_agrolib_bc832
 
         hardware_gpio
         hardware_pwm

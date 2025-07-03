@@ -11,6 +11,8 @@
 //M1 = 24, M2 = 14, M3 = 10, M4 = 2
 
 #include "rp_agrolib_uart.h"
+#include "rp_agrolib_bc832.h"
+#define BLE_MODE_PIN 9
 // UART configuration for Bluetooth module
 #define UART_ID uart0
 #define UART_RX 17
@@ -690,6 +692,44 @@ void setup(){
 
     init_altitude_kalman(); // Initialize Kalman filter for altitude
 
+    RP_AGROLIB_BC832_Simple ble(UART_ID, UART_TX, UART_RX, BLE_MODE_PIN, 115200);
+
+    printf("Initializing BC832 module...\n");
+    if (!ble.begin()) {
+        printf("Failed to initialize BC832 module!\n");
+        while (1) { tight_loop_contents(); }
+    }
+    printf("BC832 module initialized successfully\n");
+
+    // Reset module
+    printf("Resetting module...\n");
+    ble.reset();
+    sleep_ms(1000);
+
+    // Setup peripheral device
+    printf("Setting up peripheral device...\n");
+    
+    std::string macAddress = ble.getAddress();
+    printf("Peripheral device MAC address: %s\n", macAddress.c_str());
+    
+    ble.setRFPower(0);
+
+    printf("Setting up advertising...\n");
+    if (ble.setupPeripheral("BLE_PERIPHERAL")) {
+        printf("Peripheral setup successful\n");
+    } else {
+        printf("Peripheral setup failed\n");
+    }
+
+    ble.saveConfig();
+    printf("Peripheral device setup complete\n");
+
+    // Set UART flow control CTS/RTS, we don't want these, so turn them off
+    //uart_set_hw_flow(UART_ID, false, false);
+
+    // Set our data format
+    //uart_set_format(UART_ID, 8, 1, UART_PARITY_NONE);
+
     // Initialize UART for Core 1
     int irq = uart_setup(UART_ID, UART_RX, UART_TX, 115200, 8, 1, UART_PARITY_NONE);
     uart_set_fifo_enabled(UART_ID, true);
@@ -712,6 +752,8 @@ void setup(){
     rc_data.data_valid = true;
     rc_data.last_update = 0;
     critical_section_exit(&rc_data_cs);
+
+    sleep_ms(1000); // Allow time for setup
 
     // Wait for valid throttle range before arming
     while (ReceiverValue[2] > 1200 || ReceiverValue[2] <= 1000) {
