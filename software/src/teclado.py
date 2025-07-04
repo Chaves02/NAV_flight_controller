@@ -133,7 +133,7 @@ try:
 
         # Send RC command
         send_rc()
-        time.sleep(0.2)
+        time.sleep(0.1)
 
 except KeyboardInterrupt:
     print("\nExiting...")
