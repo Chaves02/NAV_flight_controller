@@ -1,4 +1,5 @@
 #include "pico/stdlib.h"
+#include <stdio.h>
 #include "pico/multicore.h"
 #include "pico/critical_section.h"
 #include <time.h>
@@ -13,6 +14,10 @@
 #include "rp_agrolib_uart.h"
 #include "rp_agrolib_bc832.h"
 #define BLE_MODE_PIN 9
+
+// Global BLE instance
+RP_AGROLIB_BC832_Simple* ble_instance = nullptr;
+
 // UART configuration for Bluetooth module
 #define UART_ID uart0
 #define UART_RX 17
@@ -149,9 +154,9 @@ void uart_reader_core1() {
                     
                     // Process different message types
                     if (strncmp(buffer, "+C", 2) == 0) {
-                        printf("Connected to RC\n");
+                        ble_instance->processIncomingData(buffer, buffer_index);
                     } else if (strncmp(buffer, "+D", 2) == 0) {
-                        printf("Disconnected from RC\n");
+                        ble_instance->processIncomingData(buffer, buffer_index);
                     } else if (strstr(buffer, "RC,") != NULL) {
                         // Handle RC command (with or without +B prefix)
                         parse_rc_command(buffer);
@@ -608,6 +613,33 @@ void init_altitude_kalman() {
 
 bool armed = false; // Flag to indicate if motors are armed
 
+void send_telemetry() {
+    // Create telemetry string in CSV format for easy parsing
+    char telemetry_buffer[256];
+    
+    snprintf(telemetry_buffer, sizeof(telemetry_buffer),
+        "TELEM,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%dt",
+        // Angles and rates
+        KalmanAngleRoll, KalmanAnglePitch, RateYaw,           // Roll, Pitch, Yaw
+        RateRoll, RatePitch, RateYaw,                         // Angular rates
+        // PID errors
+        ErrorAngleRoll, ErrorAnglePitch, ErrorRateYaw,        // Angle errors
+        ErrorRateRoll, ErrorRatePitch, ErrorRateYaw,          // Rate errors
+        // Motor outputs
+        MotorInput1, MotorInput2, MotorInput3, MotorInput4,   // Motor PWM values
+        // Altitude data
+        AltitudeKalman, VelocityVerticalKalman,               // Altitude and velocity
+        AltitudeLidar,                                        // Raw LIDAR reading
+        // System status
+        armed ? 1 : 0                                         // Armed status
+    );
+    
+    // Send via BLE (if connected)
+    if(ble_instance->isConnected()) {
+        ble_instance->sendMessage(std::string(telemetry_buffer));
+    }
+}
+
 void setup(){
 
     stdio_init_all();
@@ -692,10 +724,10 @@ void setup(){
 
     init_altitude_kalman(); // Initialize Kalman filter for altitude
 
-    RP_AGROLIB_BC832_Simple ble(UART_ID, UART_TX, UART_RX, BLE_MODE_PIN, 115200);
+    //RP_AGROLIB_BC832_Simple ble(UART_ID, UART_TX, UART_RX, BLE_MODE_PIN, 115200);
 
     printf("Initializing BC832 module...\n");
-    if (!ble.begin()) {
+    if (!ble_instance->begin()) {
         printf("Failed to initialize BC832 module!\n");
         while (1) { tight_loop_contents(); }
     }
@@ -703,35 +735,29 @@ void setup(){
 
     // Reset module
     printf("Resetting module...\n");
-    ble.reset();
+    ble_instance->reset();
     sleep_ms(1000);
 
     // Setup peripheral device
     printf("Setting up peripheral device...\n");
     
-    std::string macAddress = ble.getAddress();
+    std::string macAddress = ble_instance->getAddress();
     printf("Peripheral device MAC address: %s\n", macAddress.c_str());
     
-    ble.setRFPower(0);
+    ble_instance->setRFPower(0);
 
     printf("Setting up advertising...\n");
-    if (ble.setupPeripheral("BLE_PERIPHERAL")) {
+    if (ble_instance->setupPeripheral("BLE_PERIPHERAL")) {
         printf("Peripheral setup successful\n");
     } else {
         printf("Peripheral setup failed\n");
     }
 
-    ble.saveConfig();
+    ble_instance->saveConfig();
     printf("Peripheral device setup complete\n");
 
-    // Set UART flow control CTS/RTS, we don't want these, so turn them off
-    //uart_set_hw_flow(UART_ID, false, false);
-
-    // Set our data format
-    //uart_set_format(UART_ID, 8, 1, UART_PARITY_NONE);
-
     // Initialize UART for Core 1
-    int irq = uart_setup(UART_ID, UART_RX, UART_TX, 115200, 8, 1, UART_PARITY_NONE);
+    //int irq = uart_setup(UART_ID, UART_RX, UART_TX, 115200, 8, 1, UART_PARITY_NONE);
     uart_set_fifo_enabled(UART_ID, true);
 
     // Start Core 1 with UART reader
@@ -757,9 +783,15 @@ void setup(){
 
     // Wait for valid throttle range before arming
     while (ReceiverValue[2] > 1200 || ReceiverValue[2] <= 1000) {
-      read_receiver();
-      printf("Throttle %f\n", ReceiverValue[2]);
-      sleep_ms(200);
+        if(ble_instance->isConnected()) {
+            read_receiver();
+            printf("Throttle %f\n", ReceiverValue[2]);
+            sleep_ms(200);
+        }
+        else {
+            printf("Waiting for RC connection...\n");
+            sleep_ms(500);
+        }      
     }
     printf("Armed\n");
     armed = true;
@@ -924,23 +956,29 @@ void loop() {
 
 
     // Debug output (reduce frequency to avoid spam)
-    static int debug_counter = 0;
-    if(debug_counter++ > 100) {
-        printf("                               Angles:   %.1f   %.1f\n", AngleRoll, AnglePitch);
-        printf("ACCL: X=%.3f, Y=%.3f, Z=%.3f | Kalman: R=%.1f P=%.1f | Rates: R=%.1f P=%.1f Y=%.1f \n", 
-               AccX, AccY, AccZ, KalmanAngleRoll, KalmanAnglePitch, RateRoll, RatePitch, RateYaw);
-        printf("Motors: %.1f  %.1f  %.1f  %.1f \n", MotorInput1, MotorInput2, MotorInput3, MotorInput4);
-        printf("Receiver: R=%.1f P=%.1f T=%.1f Y=%.1f\n", 
-               ReceiverValue[0], ReceiverValue[1], ReceiverValue[2], ReceiverValue[3]);
-        printf("AccZInertial: %.1f | AltitudeLidar: %.1f | AltitudeKalman: %.1f | VelocityVerticalKalman: %.1f\n", 
-               AccZInertial, AltitudeLidar, AltitudeKalman, VelocityVerticalKalman);
-        printf("Kalman State: Alt=%.1f, Vel=%.1f | Innovation=%.1f\n", 
-               S[0], S[1], innovation);
-        printf("dt_kalman: %.6f \n", dt_kalman);
-        debug_counter = 0;
+    //static int debug_counter = 0;
+    //if(debug_counter++ > 100) {
+    //    printf("                               Angles:   %.1f   %.1f\n", AngleRoll, AnglePitch);
+    //    printf("ACCL: X=%.3f, Y=%.3f, Z=%.3f | Kalman: R=%.1f P=%.1f | Rates: R=%.1f P=%.1f Y=%.1f \n", 
+    //           AccX, AccY, AccZ, KalmanAngleRoll, KalmanAnglePitch, RateRoll, RatePitch, RateYaw);
+    //    printf("Motors: %.1f  %.1f  %.1f  %.1f \n", MotorInput1, MotorInput2, MotorInput3, MotorInput4);
+    //    printf("Receiver: R=%.1f P=%.1f T=%.1f Y=%.1f\n", 
+    //           ReceiverValue[0], ReceiverValue[1], ReceiverValue[2], ReceiverValue[3]);
+    //    printf("AccZInertial: %.1f | AltitudeLidar: %.1f | AltitudeKalman: %.1f | VelocityVerticalKalman: %.1f\n", 
+    //           AccZInertial, AltitudeLidar, AltitudeKalman, VelocityVerticalKalman);
+    //    printf("Kalman State: Alt=%.1f, Vel=%.1f | Innovation=%.1f\n", 
+    //           S[0], S[1], innovation);
+    //    printf("dt_kalman: %.6f \n", dt_kalman);
+    //    debug_counter = 0;
+    //}
+    
+    // Send telemetry at 5Hz (every 50 loops at 250Hz)
+    static int telemetry_counter = 0;
+    if(telemetry_counter++ >= 50) {
+        send_telemetry();
+        telemetry_counter = 0;
     }
-    
-    
+
     //printf("Roll_angle: %f, Pitch_angle: %f\n", KalmanAngleRoll, KalmanAnglePitch);
     uint32_t current_time = time_us_32();
     while (current_time - LoopTimer < 4000) //250Hz
@@ -953,6 +991,10 @@ void loop() {
 }
 
 int main() {
+
+    // Create BLE instance
+    RP_AGROLIB_BC832_Simple ble(UART_ID, UART_TX, UART_RX, BLE_MODE_PIN, 115200);
+    ble_instance = &ble;
 
     setup();
 
