@@ -236,29 +236,31 @@ void send_telemetry()
     local_telemetry.timestamp = telemetry_data.timestamp;
     critical_section_exit(&telemetry_cs);
 
-    // Create telemetry string in CSV format for easy parsing
-    char telemetry_buffer[256];
+    char telemetry_buffer1[128];
+    char telemetry_buffer2[128];
 
-    snprintf(telemetry_buffer, sizeof(telemetry_buffer),
-             "TELEM,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%dt",
-             // Angles and rates
+    // Part 1: Angles, rates, errors
+    snprintf(telemetry_buffer1, sizeof(telemetry_buffer1),
+             "TELEM,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,",
              local_telemetry.kalman_angle_roll, local_telemetry.kalman_angle_pitch,
              local_telemetry.rate_roll, local_telemetry.rate_pitch, local_telemetry.rate_yaw,
-             // PID errors
              local_telemetry.error_angle_roll, local_telemetry.error_angle_pitch,
-             local_telemetry.error_rate_roll, local_telemetry.error_rate_pitch, local_telemetry.error_rate_yaw,
-             // Motor outputs
-             local_telemetry.motor_input1, local_telemetry.motor_input2, local_telemetry.motor_input3, local_telemetry.motor_input4,
-             // Altitude data
+             local_telemetry.error_rate_roll, local_telemetry.error_rate_pitch, local_telemetry.error_rate_yaw);
+
+    // Part 2: Motor outputs, altitude, status
+    snprintf(telemetry_buffer2, sizeof(telemetry_buffer2),
+             "%.0f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%dt",
+             local_telemetry.motor_input1, local_telemetry.motor_input2,
+             local_telemetry.motor_input3, local_telemetry.motor_input4,
              local_telemetry.altitude_kalman, local_telemetry.velocity_vertical_kalman,
              local_telemetry.altitude_lidar,
-             // System status
              local_telemetry.armed ? 1 : 0);
 
-    // Send via BLE (if connected)
+    // Send if BLE is connected
     if (ble_instance->isConnected())
     {
-        ble_instance->sendMessage(std::string(telemetry_buffer));
+        ble_instance->sendMessage(std::string(telemetry_buffer1));
+        ble_instance->sendMessage(std::string(telemetry_buffer2));
     }
 }
 
