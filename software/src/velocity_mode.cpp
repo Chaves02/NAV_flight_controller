@@ -918,12 +918,6 @@ void setup()
 
     printf("Calibration complete\n");
 
-    gpio_put(LED_GREEN_L, 0);
-    gpio_put(LED_GREEN_R, 0);
-    gpio_put(LED_RED_L, 1);
-    gpio_put(LED_RED_R, 1);
-    sleep_ms(1000);
-
     init_altitude_kalman(); // Initialize Kalman filter for altitude
 
     // RP_AGROLIB_BC832_Simple ble(UART_ID, UART_TX, UART_RX, BLE_MODE_PIN, 115200);
@@ -965,8 +959,6 @@ void setup()
     ble_instance->saveConfig();
     printf("Peripheral device setup complete\n");
 
-    // Initialize UART for Core 1
-    // int irq = uart_setup(UART_ID, UART_RX, UART_TX, 115200, 8, 1, UART_PARITY_NONE);
     uart_set_fifo_enabled(UART_ID, true);
 
     // Start Core 1 with UART reader
@@ -988,12 +980,23 @@ void setup()
         {
             read_receiver();
             printf("Throttle %f\n", ReceiverValue[2]);
+            gpio_put(LED_RED_L, 1);
+            gpio_put(LED_RED_R, 1);
+            gpio_put(LED_GREEN_L, 0);
+            gpio_put(LED_GREEN_R, 0);
+
             sleep_ms(200);
         }
         else
         {
             printf("Waiting for RC connection...\n");
-            sleep_ms(500);
+            static bool led_state = false;
+            led_state = !led_state;
+            gpio_put(LED_RED_L, led_state);
+            gpio_put(LED_RED_R, led_state);
+            gpio_put(LED_GREEN_L, 0);
+            gpio_put(LED_GREEN_R, 0);
+            sleep_ms(200); // Fast blink
         }
     }
     printf("Armed\n");
@@ -1005,6 +1008,18 @@ void setup()
 
 void loop()
 {
+    static uint32_t last_led_toggle_time = 0;
+    uint32_t now = time_us_32();
+
+    if (armed && now - last_led_toggle_time >= 500000) { // 0.5 sec
+        static bool flight_led_state = false;
+        flight_led_state = !flight_led_state;
+        gpio_put(LED_RED_L, flight_led_state);
+        gpio_put(LED_RED_R, flight_led_state);
+        gpio_put(LED_GREEN_L, flight_led_state);
+        gpio_put(LED_GREEN_R, flight_led_state);
+        last_led_toggle_time = now;
+    }
 
     bmi_signals();
 
@@ -1142,21 +1157,12 @@ void loop()
         MotorInput3 = 50;
         MotorInput4 = 50;
         printf("Motors armed\n");
-        gpio_put(LED_RED_L, 1);
-        gpio_put(LED_RED_R, 1);
-        gpio_put(LED_GREEN_L, 0);
-        gpio_put(LED_GREEN_R, 0);
     }
 
     if (ReceiverValue[2] < 1050 && counter_cutof > 250 & AltitudeKalman < 5)
     { // If throttle is below 10% and pitch is below 10% (disarm condition)
-
         armed = false; // Set armed flag to false
         printf("Motors disarmed\n");
-        gpio_put(LED_RED_L, 0);
-        gpio_put(LED_RED_R, 0);
-        gpio_put(LED_GREEN_L, 1);
-        gpio_put(LED_GREEN_R, 1);
         counter_cutof = 0; // Reset disarm counter
     }
 
@@ -1170,10 +1176,18 @@ void loop()
     }
     else
     {
+        MotorInput1 = 0;
+        MotorInput2 = 0;
+        MotorInput3 = 0;
+        MotorInput4 = 0;
         set_motor_speed(MOTOR1_PIN, ThrottleCutOff);
         set_motor_speed(MOTOR2_PIN, ThrottleCutOff);
         set_motor_speed(MOTOR3_PIN, ThrottleCutOff);
         set_motor_speed(MOTOR4_PIN, ThrottleCutOff);
+        gpio_put(LED_RED_L, 0);
+        gpio_put(LED_RED_R, 0);
+        gpio_put(LED_GREEN_L, 1);
+        gpio_put(LED_GREEN_R, 1);
     }
 
     // Debug output (reduce frequency to avoid spam)
