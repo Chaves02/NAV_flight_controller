@@ -1,15 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
-//#include <ctype.h>
-#include "pico/stdlib.h"
-#include "pico/multicore.h"
-#include "hardware/spi.h"
-#include "hardware/gpio.h"
-#include "hardware/uart.h"
-#include "hardware/timer.h"
-#include "pico/time.h"
 #include "tusb.h" // TinyUSB for USB CDC (PC ↔ RP2040)
 #include "rp_agrolib_bc832.h"
 
