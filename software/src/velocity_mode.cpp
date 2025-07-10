@@ -785,8 +785,8 @@ void bmi_signals()
     RatePitch = bmi088.getGyroY_degs() - RateCalibrationPitch; // Y left
     RateYaw = bmi088.getGyroZ_degs() - RateCalibrationYaw;     // Z up
 
-    AngleRoll = atan2(AccY, sqrt(AccX * AccX + AccZ * AccZ)) * RadtoDeg;   // to degrees
-    AnglePitch = -atan2(AccX, sqrt(AccY * AccY + AccZ * AccZ)) * RadtoDeg; // to degrees
+    AngleRoll = atan2(AccY, sqrt(AccX * AccX + AccZ * AccZ)) * RadtoDeg; // to degrees
+    AnglePitch = -atan2(AccX, sqrt(AccY * AccY + AccZ * AccZ)) * RadtoDeg + 1; // to degrees
 }
 
 bool newAlt = false; // Flag to indicate new altitude data
@@ -1011,7 +1011,8 @@ void loop()
     static uint32_t last_led_toggle_time = 0;
     uint32_t now = time_us_32();
 
-    if (armed && now - last_led_toggle_time >= 500000) { // 0.5 sec
+    if (armed && now - last_led_toggle_time >= 500000)
+    { // 0.5 sec
         static bool flight_led_state = false;
         flight_led_state = !flight_led_state;
         gpio_put(LED_RED_L, flight_led_state);
@@ -1160,7 +1161,7 @@ void loop()
     }
 
     if (ReceiverValue[2] < 1050 && counter_cutof > 250 & AltitudeKalman < 5)
-    { // If throttle is below 10% and pitch is below 10% (disarm condition)
+    {                  // If throttle is below 10% and pitch is below 10% (disarm condition)
         armed = false; // Set armed flag to false
         printf("Motors disarmed\n");
         counter_cutof = 0; // Reset disarm counter

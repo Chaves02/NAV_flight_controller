@@ -317,4 +317,4 @@ finally:
 
 # Installation requirements:
 # pip install keyboard pyserial
-# Run with: sudo ~/drone-rc-venv/bin/python integrated_controller.py
+# Run with: sudo ~/drone-rc-venv/bin/python teclado.py

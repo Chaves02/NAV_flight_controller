@@ -35,89 +35,6 @@ include_directories(${PICO_SDK_PATH}/src/rp2_common/hardware_i2c/include)
 include_directories(${PICO_SDK_PATH}/src/rp2_common/hardware_adc/include)
 include_directories(${PICO_SDK_PATH}/src/rp2_common/pico_time/include)
 
-# Add source files for libraries
-add_library(drone_leds
-        ${CMAKE_CURRENT_SOURCE_DIR}/include/led/led.cpp
-)
-
-target_link_libraries(drone_leds
-        pico_stdlib
-)
-
-add_library(ahr
-        ${CMAKE_CURRENT_SOURCE_DIR}/include/ahr/ahr.cpp
-)
-
-target_link_libraries(ahr
-        pico_stdlib
-        rp_agrolib_bmi088
-)
-
-add_library(out
-        ${CMAKE_CURRENT_SOURCE_DIR}/include/out/out.cpp
-)
-
-target_link_libraries(out
-        pico_stdlib
-)
-
-add_library(rclsim
-        ${CMAKE_CURRENT_SOURCE_DIR}/include/rclsim/rclsim.cpp
-)
-
-target_link_libraries(rclsim
-        pico_stdlib
-)
-
-add_library(pid
-        ${CMAKE_CURRENT_SOURCE_DIR}/include/pid/pid.cpp
-)
-
-target_link_libraries(pid
-        pico_stdlib
-)
-
-add_library(madflight
-        ${CMAKE_CURRENT_SOURCE_DIR}/include/madflight/madflight.cpp
-)
-
-target_link_libraries(madflight
-        pico_stdlib
-        drone_leds
-        ahr
-        out
-        pid
-        rclsim
-        rp_agrolib_i2c
-        rp_agrolib_bmi088
-        rp_agrolib_vl53l8cx
-)
-
-############################################################
-# MAIN
-############################################################
-
-add_executable(nav_flight_controller
-        src/main.cpp)
-
-pico_enable_stdio_usb(nav_flight_controller 1)
-pico_enable_stdio_uart(nav_flight_controller 0)
-
-pico_add_extra_outputs(nav_flight_controller)
-
-# Link libraries - add the specific driver and interface libraries you need
-target_link_libraries(nav_flight_controller
-        pico_stdlib
-        rp_agrolib_motors
-        rp_agrolib_vl53l8cx
-        rp_agrolib_bmi088
-        hardware_gpio
-        hardware_pwm
-        hardware_timer
-        hardware_adc
-        rp_agrolib_i2c
-)
-
 ################################################################
 # Angle_mode
 ################################################################
@@ -175,19 +92,41 @@ target_link_libraries(velocity_mode
 )
 
 ################################################################
-# docking
+# docking_control
 #################################################################
 
-add_executable(docking
-        src/docking.cpp)
+add_executable(docking_control
+        src/docking_control.cpp)
 
-pico_enable_stdio_usb(docking 1)
-pico_enable_stdio_uart(docking 0)
+pico_enable_stdio_usb(docking_control 1)
+pico_enable_stdio_uart(docking_control 0)
 
-pico_add_extra_outputs(docking)
+pico_add_extra_outputs(docking_control)
 
 # Link libraries - add the specific driver and interface libraries you need
-target_link_libraries(docking
+target_link_libraries(docking_control
+        pico_stdlib
+        pico_stdio_usb
+        pico_time
+        pico_multicore
+
+        rp_agrolib_bc832
+)
+
+################################################################
+# docking_monochrome
+#################################################################
+
+add_executable(docking_monochrome
+        src/docking_monochrome.cpp)
+
+pico_enable_stdio_usb(docking_monochrome 1)
+pico_enable_stdio_uart(docking_monochrome 0)
+
+pico_add_extra_outputs(docking_monochrome)
+
+# Link libraries - add the specific driver and interface libraries you need
+target_link_libraries(docking_monochrome
 
         pico_stdlib
         pico_stdio_usb
@@ -207,19 +146,19 @@ target_link_libraries(docking
 )
 
 ################################################################
-# docking_spi
+# docking_spicolor
 #################################################################
 
-add_executable(docking_spi
-        src/docking_spi.cpp)
+add_executable(docking_spicolor
+        src/docking_spicolor.cpp)
 
-pico_enable_stdio_usb(docking_spi 1)
-pico_enable_stdio_uart(docking_spi 0)
+pico_enable_stdio_usb(docking_spicolor 1)
+pico_enable_stdio_uart(docking_spicolor 0)
 
-pico_add_extra_outputs(docking_spi)
+pico_add_extra_outputs(docking_spicolor)
 
 # Link libraries - add the specific driver and interface libraries you need
-target_link_libraries(docking_spi
+target_link_libraries(docking_spicolor
 
         pico_stdlib
         pico_stdio_usb
@@ -237,40 +176,4 @@ target_link_libraries(docking_spi
         hardware_spi
         hardware_pio
         hardware_dma
-)
-
-############################################################
-#Quadcopter Flight Controller
-############################################################
-
-add_executable(quadcopter_flight_controller
-        src/Quadcopter.cpp)
-
-pico_enable_stdio_usb(quadcopter_flight_controller 1)
-pico_enable_stdio_uart(quadcopter_flight_controller 0)
-
-pico_add_extra_outputs(quadcopter_flight_controller)
-
-# Link libraries - add the specific driver and interface libraries you need
-target_link_libraries(quadcopter_flight_controller
-        
-        pico_stdlib
-
-        rp_agrolib_vl53l8cx
-        rp_agrolib_bmi088
-        rp_agrolib_i2c
-
-
-        # Local libraries
-        drone_leds
-        ahr
-        out
-        rclsim
-        pid
-        madflight
-
-        hardware_gpio
-        hardware_pwm
-        hardware_timer
-        hardware_adc
 )
