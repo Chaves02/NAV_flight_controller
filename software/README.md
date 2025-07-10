@@ -1,5 +1,8 @@
 # RP2040 Flight Controller Build Guide
 
+Clone this repository:
+> `git clone https://github.com/Chaves02/NAV_flight_controller.git` <br />
+
 ## Get the SDK to work with RP2040 microcontroller ##
 The Raspberry Pi Pico development is fully supported with both C/C++ SDK and an official MicroPython port. <br />
 As Pico is built around the RP2040 microcontroller designed by Raspberry Pi, we can use the same environment to build our projects around our own board. <br />
@@ -7,7 +10,7 @@ As Pico is built around the RP2040 microcontroller designed by Raspberry Pi, we 
 The SDK can be got in https://github.com/raspberrypi/pico-sdk: (inside NAV_flight_controller folder)
 > `git clone -b master https://github.com/raspberrypi/pico-sdk.git` <br />
 > `cd pico-sdk` <br />
-> `git checkout 5258ee640bf08909cd8d3e9c3d1c75afb51d9352`
+> `git checkout 5258ee640bf08909cd8d3e9c3d1c75afb51d9352` <br />
 > `git submodule update --init`
 
 To build the applications is necessary to install some extra tools:
@@ -18,8 +21,8 @@ To build the applications is necessary to install some extra tools:
 
 To use this repository, create 'extern' folder and add it as a submodule of the repository NAV_flight_controller, inside extern folder.
 
-> `mkdir extern`
-> `cd extern`
+> `mkdir extern` <br />
+> `cd extern` <br />
 > `git submodule add https://gitlab.inesctec.pt/agrob/rp2040_agrolib.git`
 
 Some submodules have to be initialized and updated. Use the following command inside its folders.
@@ -34,15 +37,15 @@ Add SDK path to the file (define the absolute path in your environment):
 
 ### Build Submodule: `RP2040_AGROLIB`
 
-> `cd extern/rp2040_agrolib/software/scripts`
+> `cd extern/rp2040_agrolib/software/scripts` <br />
 > `./build.sh`
 
 ## Build `NAV_flight_controller`
 
-> `cd software`
-> `mkdir build`
-> `cd build`
-> `cmake ..`
+> `cd software` <br />
+> `mkdir build` <br />
+> `cd build` <br />
+> `cmake ..` <br />
 > `make`
 
 ## Upload to RP2040
